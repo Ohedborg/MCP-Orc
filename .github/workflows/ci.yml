@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "work"]
+
+jobs:
+  docs-and-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate required chunk1 files exist
+        run: |
+          test -f infra/kind/kind-config.yaml
+          test -f infra/kind/gvisor-setup.md
+          test -f infra/k8s/runtimeclass/00-gvisor-runtimeclass.yaml
+          test -f infra/k8s/networkpolicies/00-default-deny-egress.yaml
+          test -f infra/k8s/samples/hello-gvisor-pod.yaml

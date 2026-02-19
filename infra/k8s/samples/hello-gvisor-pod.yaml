@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hello-gvisor
+  namespace: mcp-runs
+  labels:
+    app: hello-gvisor
+spec:
+  runtimeClassName: gvisor
+  restartPolicy: Never
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: hello
+      image: cgr.dev/chainguard/busybox:latest
+      command: ["sh", "-c", "echo hello-from-gvisor && sleep 2"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"

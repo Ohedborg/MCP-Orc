@@ -1,0 +1,16 @@
+# MCP-Orc
+
+Security-first composed MCP server MVP.
+
+## Status
+- ✅ Chunk 0 docs complete (`docs/*`)
+- ✅ Chunk 1 scaffold + Kubernetes security baseline manifests added
+- ✅ Chunk 2 orchestrator MCP server skeleton (stdio + SQLite + validation)
+- ✅ Chunk 3 runner service (Go) + hardened gVisor pod launcher + runner k8s manifests
+- ✅ Chunk 4 runner supply-chain controls (registry allowlist + cosign verify + digest pinning)
+- ✅ Chunk 5 minimal MCP bridging path (orchestrator -> runner -> downstream tool proxy) with tool allowlist
+
+## Quick start
+- Infra: `infra/kind/gvisor-setup.md`, `infra/k8s/README.md`
+- Orchestrator: `orchestrator/README.md`
+- Runner: `runner/README.md`

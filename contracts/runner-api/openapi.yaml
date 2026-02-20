@@ -1,0 +1,76 @@
+openapi: 3.1.0
+info:
+  title: Composed MCP Runner API
+  version: 0.1.0
+paths:
+  /runs:
+    post:
+      summary: Create run pod
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image_ref, network_policy_profile]
+              properties:
+                image_ref: { type: string }
+                command: { type: array, items: { type: string } }
+                args: { type: array, items: { type: string } }
+                env_allowlist: { type: object, additionalProperties: { type: string } }
+                cpu: { type: string }
+                memory: { type: string }
+                timeout_seconds: { type: integer, minimum: 1 }
+                network_policy_profile: { type: string, enum: [deny-all, dns-only] }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id: { type: string }
+                  pod_name: { type: string }
+                  image_digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+                  policy_evidence:
+                    type: object
+                    properties:
+                      registry_allowed: { type: boolean }
+                      signature_verified: { type: boolean }
+                      verifier: { type: string }
+                      identity: { type: string }
+                      resolved_digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+                      denial_reason: { type: string }
+        '403':
+          description: Policy denied
+  /runs/{run_id}:
+    get:
+      summary: Get run status
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /runs/{run_id}/logs:
+    get:
+      summary: Get run logs
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /runs/{run_id}/stop:
+    post:
+      summary: Stop run
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+      responses:
+        '202': { description: Accepted }

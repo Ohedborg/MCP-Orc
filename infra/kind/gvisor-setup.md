@@ -1,6 +1,6 @@
-# kind + gVisor Setup (Chunk 1)
+# kind + gVisor Setup
 
-> Note: kind gVisor setup requires host-level access to install and configure `runsc` in kind nodes.
+> kind gVisor setup requires host-level access to install and configure `runsc` in kind nodes.
 
 ## Prereqs
 - Docker
@@ -14,7 +14,6 @@ kind create cluster --config infra/kind/kind-config.yaml
 ```
 
 ## Install `runsc` in kind nodes
-Example flow (repeat for each kind node):
 ```bash
 for node in $(kind get nodes --name mcp-orc); do
   docker cp /usr/local/bin/runsc "$node":/usr/local/bin/runsc
@@ -35,36 +34,34 @@ version = 2
     ConfigPath = "/etc/containerd/runsc.toml"
 EOF'
   docker exec "$node" systemctl restart containerd
-  docker exec "$node" crictl info | grep -i runsc || true
 done
 ```
 
-## Apply infra manifests
+## Apply infra
 ```bash
 kubectl apply -f infra/k8s/namespaces
 kubectl apply -f infra/k8s/runtimeclass
 kubectl apply -f infra/k8s/networkpolicies
+kubectl apply -f infra/k8s/runner
 kubectl apply -f infra/k8s/samples/hello-gvisor-pod.yaml
 kubectl apply -f infra/k8s/samples/egress-deny-test.yaml
 ```
 
-## Verify RuntimeClass in effect
+## Verify gVisor runtime class
 ```bash
 kubectl -n mcp-runs get pod hello-gvisor -o jsonpath='{.spec.runtimeClassName}{"\n"}'
 kubectl -n mcp-runs describe pod hello-gvisor | rg 'Runtime Class|runtimeClassName'
 ```
-Expected: `gvisor`.
 
 ## Verify deny-by-default egress
 ```bash
 kubectl -n mcp-runs logs egress-deny-test
 ```
-Expected: DNS/network calls fail because namespace egress is denied.
 
-## Optional dns-only profile test
-Apply the dns-only policy, then verify DNS works but external HTTP still fails.
+## Verify runner launch path
 ```bash
-kubectl apply -f infra/k8s/networkpolicies/11-allow-egress-dns.yaml
-kubectl -n mcp-runs delete pod egress-deny-test && kubectl apply -f infra/k8s/samples/egress-deny-test.yaml
-kubectl -n mcp-runs logs egress-deny-test
+kubectl -n mcp-system port-forward svc/mcp-runner 8080:8080
+curl -sS -X POST http://127.0.0.1:8080/runs -H 'Content-Type: application/json' \
+  -d '{"image_ref":"cgr.dev/chainguard/curl:latest","network_policy_profile":"deny-all","timeout_seconds":60}'
 ```
+Then poll `/runs/{run_id}` and `/runs/{run_id}/logs`.

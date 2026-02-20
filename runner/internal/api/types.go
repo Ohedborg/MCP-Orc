@@ -1,0 +1,31 @@
+package api
+
+type CreateRunRequest struct {
+	ImageRef             string            `json:"image_ref"`
+	Command              []string          `json:"command,omitempty"`
+	Args                 []string          `json:"args,omitempty"`
+	EnvAllowlist         map[string]string `json:"env_allowlist,omitempty"`
+	CPU                  string            `json:"cpu,omitempty"`
+	Memory               string            `json:"memory,omitempty"`
+	TimeoutSeconds       int64             `json:"timeout_seconds,omitempty"`
+	NetworkPolicyProfile string            `json:"network_policy_profile"`
+}
+
+type CreateRunResponse struct {
+	RunID   string `json:"run_id"`
+	PodName string `json:"pod_name"`
+}
+
+type RunStatusResponse struct {
+	RunID     string `json:"run_id"`
+	Status    string `json:"status"`
+	PodName   string `json:"pod_name"`
+	Namespace string `json:"namespace"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type LogsResponse struct {
+	RunID  string `json:"run_id"`
+	Stdout string `json:"stdout"`
+	Stderr string `json:"stderr"`
+}

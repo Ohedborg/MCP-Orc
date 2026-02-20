@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'mcp_orc_builder_v6';
+const STORAGE_KEY = 'mcp_orc_builder_v7';
 
 const state = loadState();
 
@@ -84,8 +84,12 @@ function renderAuthFields() {
 
 async function verifyConnection(mode) {
   const server = buildServerDraft();
-  if (!server.name || !server.url) {
-    outputEl.textContent = 'Server requires name + URL before verification.';
+  if (!server.name) {
+    outputEl.textContent = 'Server requires name before verification.';
+    return;
+  }
+  if (!server.url && !server.command) {
+    outputEl.textContent = 'Server requires URL or command before verification.';
     return;
   }
 
@@ -110,10 +114,11 @@ async function verifyConnection(mode) {
     verifiedAt: new Date().toISOString(),
     status: discovery.ok ? 'verified' : 'failed',
     lastError: discovery.ok ? '' : discovery.error,
+    transport: discovery.transport || (server.command ? 'stdio' : 'http'),
   };
 
   if (discovery.ok) {
-    connStatusEl.textContent = `Connected. ${discoveredTools.length} tools discovered.`;
+    connStatusEl.textContent = `Connected (${connectedDraft.transport}). ${discoveredTools.length} tools discovered.`;
     outputEl.textContent = `Verified ${server.name}. Tools are now available for node selection.`;
   } else {
     connStatusEl.textContent = `Verification failed: ${discovery.error}`;
@@ -126,24 +131,22 @@ async function discoverViaProxy(server) {
     const response = await fetch('/mcp/discover', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        server_url: server.url,
-        auth: server.auth,
-      }),
+      body: JSON.stringify(server),
     });
 
     const body = await response.json();
     if (!response.ok) {
-      return { ok: false, error: body.error || `HTTP ${response.status}`, tools: [] };
+      return { ok: false, error: body.error || `HTTP ${response.status}`, tools: [], transport: body.transport || 'unknown' };
     }
 
     return {
       ok: Boolean(body.ok),
       error: body.error || '',
       tools: Array.isArray(body.tools) ? body.tools : [],
+      transport: body.transport || 'unknown',
     };
   } catch (error) {
-    return { ok: false, error: String(error.message || error), tools: [] };
+    return { ok: false, error: String(error.message || error), tools: [], transport: 'unknown' };
   }
 }
 
@@ -170,6 +173,9 @@ function buildServerDraft() {
     id: crypto.randomUUID(),
     name: serverNameEl.value.trim(),
     url: serverUrlEl.value.trim(),
+    command: '',
+    args: [],
+    env: {},
     auth: { type: authType, details: authDetails },
     toolHints: splitCsv(toolHintsEl.value),
     tools: [],
@@ -177,7 +183,7 @@ function buildServerDraft() {
 }
 
 function upsertServer(server) {
-  const idx = state.servers.findIndex((item) => item.name === server.name && item.url === server.url);
+  const idx = state.servers.findIndex((item) => item.name === server.name && item.url === server.url && item.command === server.command);
   if (idx >= 0) {
     state.servers[idx] = { ...state.servers[idx], ...server };
     return;
@@ -196,12 +202,12 @@ function renderServers() {
       <div class="server-head">
         <div>
           <strong>${escapeHtml(server.name)}</strong>
-          <div class="server-meta">${escapeHtml(server.tools.length)} tools · ${escapeHtml(server.auth.type)}</div>
+          <div class="server-meta">${escapeHtml(server.tools.length)} tools · ${escapeHtml(server.auth?.type || 'none')} · ${escapeHtml(server.transport || inferTransport(server))}</div>
           <div class="server-status">${server.connected ? '✅ verified' : '⚠️ unverified'} ${server.lastError ? `· ${escapeHtml(server.lastError)}` : ''}</div>
         </div>
         <button class="toggle ${server.enabled ? 'on' : ''}" data-toggle="${server.id}" aria-label="toggle"></button>
       </div>
-      <div class="server-meta">${escapeHtml(server.url)}</div>
+      <div class="server-meta">${escapeHtml(server.url || `${server.command || ''} ${(server.args || []).join(' ')}`)}</div>
       <div class="server-actions">
         <button class="ghost" data-open-node="${server.id}">Add to flow</button>
         <button class="warn" data-reverify="${server.id}">Re-verify</button>
@@ -246,10 +252,15 @@ function renderServers() {
       server.tools = discovery.tools.length ? discovery.tools : server.tools;
       server.lastError = discovery.ok ? '' : discovery.error;
       server.status = discovery.ok ? 'verified' : 'failed';
+      server.transport = discovery.transport || server.transport || inferTransport(server);
       persist();
       renderServers();
     });
   });
+}
+
+function inferTransport(server) {
+  return server.command ? 'stdio' : 'http';
 }
 
 function openNodePicker(serverId = '') {
@@ -355,19 +366,26 @@ function renderFlow() {
 function loadFromJson() {
   try {
     const parsed = JSON.parse(mcpJsonEl.value || '{}');
-    const servers = Object.entries(parsed.mcpServers || {}).map(([name, cfg]) => {
+    const serversRaw = collectServerEntries(parsed);
+
+    const servers = serversRaw.map(([name, cfg]) => {
       const tools = parseToolsFromConfig(cfg);
+      const hasConnectionConfig = typeof cfg?.url === 'string' || typeof cfg?.command === 'string';
       return {
         id: crypto.randomUUID(),
         name,
-        url: cfg.url || 'local://stdio',
-        auth: cfg.auth || { type: 'none', details: {} },
+        url: typeof cfg?.url === 'string' ? cfg.url : '',
+        command: typeof cfg?.command === 'string' ? cfg.command : '',
+        args: Array.isArray(cfg?.args) ? cfg.args : [],
+        env: cfg?.env && typeof cfg.env === 'object' ? cfg.env : {},
+        auth: cfg?.auth || { type: 'none', details: {} },
         toolHints: tools,
         tools,
         connected: tools.length > 0,
-        enabled: cfg.enabled !== false,
+        enabled: cfg?.enabled !== false,
+        transport: typeof cfg?.command === 'string' ? 'stdio' : 'http',
         status: tools.length > 0 ? 'verified' : 'unverified',
-        lastError: tools.length ? '' : 'No tools in config. Re-verify to discover.',
+        lastError: hasConnectionConfig ? '' : 'Missing url/command in config.',
       };
     });
 
@@ -375,10 +393,38 @@ function loadFromJson() {
     state.nodes = [];
     persist();
     renderAll();
-    outputEl.textContent = `Loaded ${servers.length} servers from mcp.json.`;
+    outputEl.textContent = `Loaded ${servers.length} servers from mcp.json. Re-verify servers to discover tools when needed.`;
   } catch (error) {
     outputEl.textContent = `Invalid mcp.json: ${error.message}`;
   }
+}
+
+function collectServerEntries(parsed) {
+  const entries = [];
+  if (parsed && typeof parsed === 'object' && parsed.mcpServers && typeof parsed.mcpServers === 'object') {
+    entries.push(...Object.entries(parsed.mcpServers));
+  }
+
+  Object.entries(parsed || {}).forEach(([key, value]) => {
+    if (key === 'mcpServers') return;
+    if (value && typeof value === 'object' && (value.url || value.command)) {
+      entries.push([key, value]);
+    }
+  });
+
+  return dedupeByName(entries);
+}
+
+function dedupeByName(entries) {
+  const seen = new Set();
+  const result = [];
+  for (const [name, cfg] of entries) {
+    const key = String(name).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push([name, cfg]);
+  }
+  return result;
 }
 
 function parseToolsFromConfig(cfg = {}) {
@@ -395,8 +441,9 @@ function saveToJson() {
   const json = {
     mcpServers: Object.fromEntries(
       state.servers.map((server) => [server.name, {
-        url: server.url,
-        auth: { type: server.auth.type, details: '<redacted>' },
+        ...(server.url ? { url: server.url } : {}),
+        ...(server.command ? { command: server.command, args: server.args || [], env: server.env || {} } : {}),
+        auth: { type: server.auth?.type || 'none', details: '<redacted>' },
         tools: server.tools,
         enabled: server.enabled,
         verified: server.connected,

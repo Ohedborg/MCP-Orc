@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP-Orc Workflow Builder</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>MCP-Orc Workflow Builder</h1>
+      <p>Zapier/Pipedream-style composition for existing MCP servers. Register servers, pick tools, and create a clean chained flow on canvas.</p>
+    </header>
+
+    <main class="layout">
+      <aside class="panel stack">
+        <section class="card" aria-labelledby="register-title">
+          <h2 id="register-title">1) Register MCP server</h2>
+          <form id="register-server-form" class="stack">
+            <label>Server name <input name="name" required placeholder="docs-mcp" /></label>
+            <label>Base URL <input name="base_url" required placeholder="http://docs-mcp.internal:8080" /></label>
+            <label>Tools (comma-separated) <input name="tools" required placeholder="search_docs,summarize,extract" /></label>
+            <label>Optional guideline.md
+              <textarea name="guideline" rows="5" placeholder="# guideline.md\n- redact PII\n- concise output"></textarea>
+            </label>
+            <button type="submit">Add server</button>
+          </form>
+        </section>
+
+        <section class="card" aria-labelledby="step-title">
+          <h2 id="step-title">2) Add chain step</h2>
+          <form id="add-step-form" class="stack">
+            <label>Step id <input name="step_id" required placeholder="step_prepare" /></label>
+            <label>Server
+              <select name="server_id" id="server-select" required>
+                <option value="">Select server</option>
+              </select>
+            </label>
+            <label>Tool
+              <select name="tool_name" id="tool-select" required>
+                <option value="">Select tool</option>
+              </select>
+            </label>
+            <label>Input template JSON
+              <textarea name="input_template" rows="4" required>{"message":"{{previous.output}}"}</textarea>
+            </label>
+            <small>Use <code>{{previous.output}}</code> to pass output to the next server.</small>
+            <button type="submit">Add to canvas</button>
+          </form>
+        </section>
+
+        <section class="card" aria-labelledby="registry-title">
+          <h2 id="registry-title">Registered MCP servers</h2>
+          <div id="server-list" class="stack compact"></div>
+        </section>
+      </aside>
+
+      <section class="workspace stack">
+        <article class="card canvas-card">
+          <div class="canvas-header">
+            <h2>3) Workflow canvas</h2>
+            <span id="chain-count" class="badge">0 steps</span>
+          </div>
+          <div id="canvas" class="canvas" aria-live="polite">
+            <p class="empty">No steps yet. Add a chain step to start drawing your flow.</p>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>4) Simulate and export</h2>
+          <div class="actions">
+            <button id="simulate-chain" type="button">Simulate context handoff</button>
+            <button id="export-config" type="button">Generate composed MCP config</button>
+          </div>
+          <pre id="output">No output yet.</pre>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

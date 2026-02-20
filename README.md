@@ -29,6 +29,7 @@ This starts:
 
 ## Frontend usage flow
 1. Register one or more existing MCP servers (name, URL, tools, optional guideline markdown).
-2. Build/reorder a linear chain directly on the workflow canvas using server + tool steps.
-3. Simulate context passing across steps.
-4. Export a composed configuration JSON to consume through MCP-Orc as a single MCP endpoint in your IDE.
+2. Use the + button to add nodes from a modal (create new or pick saved MCP server).
+3. Configure auth (OAuth/API key/bearer/basic), connect, and select tool(s) per node.
+4. Set context handoff policy (summary/key fields/chunked/full) and token budget for each node.
+5. Simulate and export a composed configuration JSON for single MCP-Orc IDE consumption.

@@ -78,6 +78,32 @@ paths:
       responses:
         '202': { description: Stop initiated }
         '404': { description: Not found }
+  /runs/{run_id}/tools/{tool_name}:
+    post:
+      summary: Invoke downstream tool through runner proxy
+      operationId: invokeTool
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: tool_name
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200': { description: Tool output }
+        '403': { description: Tool not allowed }
 components:
   schemas:
     ResourceLimits:
@@ -107,6 +133,15 @@ components:
           type: object
           additionalProperties: { type: string }
           description: Explicit non-secret env vars allowed into pod.
+        allowed_tools:
+          type: array
+          items: { type: string }
+          description: Per-run downstream tool allowlist enforced by runner proxy.
+        downstream_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          default: 8080
         resources:
           $ref: '#/components/schemas/ResourceLimits'
         network_policy_profile:
@@ -162,3 +197,7 @@ components:
 - Runner is internal-only; caller authn/authz can be layered via mTLS/service account policy in later chunk.
 - Unknown network profiles must be rejected (fail-closed).
 - `env_allowlist` is explicitly non-secret; secret injection is out of MVP.
+
+
+## Chunk 5 note
+- Runner now exposes a tool proxy endpoint with allowlist enforcement for orchestrator-to-downstream bridging.

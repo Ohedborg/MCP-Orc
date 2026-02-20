@@ -51,6 +51,21 @@ export class Repository {
       .run(record);
   }
 
+
+  updateRunStatus(runId: string, status: RunStatus, error: string | null = null): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE runs
+         SET status = ?,
+             started_at = COALESCE(started_at, CASE WHEN ? = 'running' THEN ? ELSE started_at END),
+             finished_at = CASE WHEN ? IN ('completed','failed') THEN ? ELSE finished_at END,
+             error = ?
+         WHERE run_id = ?`,
+      )
+      .run(status, status, now, status, now, error, runId);
+  }
+
   getRun(runId: string): RunRecord | undefined {
     return this.db.prepare(`SELECT * FROM runs WHERE run_id = ?`).get(runId) as RunRecord | undefined;
   }

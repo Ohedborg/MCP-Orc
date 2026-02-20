@@ -9,8 +9,9 @@ import {
   RunTraceSchema,
   RunWorkflowInputSchema,
   RunWorkflowOutputSchema,
+  StepBridgeParamsSchema,
 } from "./schemas.js";
-import { enqueueWorkflow } from "../runner-client/client.js";
+import { createRun, invokeTool } from "../runner-client/client.js";
 
 export function createMcpServer(repository: Repository): McpServer {
   const server = new McpServer({
@@ -20,7 +21,7 @@ export function createMcpServer(repository: Repository): McpServer {
 
   server.tool(
     "run_workflow",
-    "Queue a high-level workflow run.",
+    "Queue and execute a minimal single-step bridged workflow.",
     {
       workflow_id: RunWorkflowInputSchema.shape.workflow_id,
       params: RunWorkflowInputSchema.shape.params,
@@ -51,18 +52,52 @@ export function createMcpServer(repository: Repository): McpServer {
         created_at: createdAt,
       });
 
-      await enqueueWorkflow(input.workflow_id, input.params);
+      try {
+        repository.updateRunStatus(runId, "running");
+        const bridge = StepBridgeParamsSchema.parse(input.params);
 
+        const runnerRun = await createRun({
+          image_ref: bridge.image_ref,
+          command: bridge.command,
+          args: bridge.args,
+          allowed_tools: bridge.allowed_tools,
+          downstream_port: bridge.downstream_port,
+          cpu: bridge.cpu,
+          memory: bridge.memory,
+          timeout_seconds: bridge.timeout_seconds,
+          network_policy_profile: bridge.network_policy_profile,
+        });
+
+        const invoke = await invokeTool(runnerRun.run_id, bridge.tool_name, bridge.tool_input);
+
+        repository.insertStep(runId, "bridge-tool-call", "completed");
+        repository.insertToolCall({
+          run_id: runId,
+          step_id: "bridge-tool-call",
+          tool_name: bridge.tool_name,
+          input_redacted: JSON.stringify(redactSensitive(bridge.tool_input)),
+          output_redacted: JSON.stringify(redactSensitive(invoke.output)),
+          created_at: new Date().toISOString(),
+        });
+
+        repository.updateRunStatus(runId, "completed");
+      } catch (error) {
+        repository.insertStep(runId, "bridge-tool-call", "failed");
+        repository.updateRunStatus(runId, "failed", error instanceof Error ? error.message : String(error));
+      }
+
+      const run = repository.getRun(runId);
       const output = RunWorkflowOutputSchema.parse({
         run_id: runId,
-        status: "queued",
+        status: run?.status ?? "failed",
       });
 
-      log("info", "workflow run queued", {
+      log("info", "workflow run handled", {
         request_id: reqId,
         tool: "run_workflow",
         run_id: runId,
         workflow_id: input.workflow_id,
+        status: output.status,
       });
 
       return {
@@ -105,9 +140,7 @@ export function createMcpServer(repository: Repository): McpServer {
       const trace = RunTraceSchema.parse({
         ...run,
         steps: repository.getSteps(input.run_id),
-        tool_calls: repository
-          .getToolCalls(input.run_id)
-          .map((tc) => ({ ...tc, input_redacted: tc.input_redacted, output_redacted: tc.output_redacted })),
+        tool_calls: repository.getToolCalls(input.run_id),
       });
 
       repository.insertToolCall({

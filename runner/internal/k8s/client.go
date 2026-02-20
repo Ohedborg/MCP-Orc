@@ -1,9 +1,11 @@
 package k8s
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -151,4 +153,31 @@ func (c *Client) WaitAndDelete(namespace, podName string, waitSeconds int64) {
 		time.Sleep(time.Duration(waitSeconds) * time.Second)
 		_ = c.DeletePod(context.Background(), namespace, podName)
 	}()
+}
+
+func (c *Client) GetPodIP(ctx context.Context, namespace, podName string) (string, error) {
+	pod, err := c.clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	return pod.Status.PodIP, nil
+}
+
+func (c *Client) InvokeTool(ctx context.Context, podIP string, port int, toolName string, payload []byte) ([]byte, int, error) {
+	url := fmt.Sprintf("http://%s:%d/tools/%s", podIP, port, toolName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, err
+	}
+	return body, resp.StatusCode, nil
 }

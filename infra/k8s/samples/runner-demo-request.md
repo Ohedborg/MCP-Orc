@@ -46,3 +46,10 @@ Stop run:
 ```bash
 curl -i -X POST http://127.0.0.1:8080/runs/<run_id>/stop
 ```
+
+Invoke tool through runner proxy (only if tool is in `allowed_tools`):
+```bash
+curl -sS -X POST http://127.0.0.1:8080/runs/<run_id>/tools/echo \
+  -H 'Content-Type: application/json' \
+  -d '{"input":{"value":"hello"}}'
+```

@@ -19,6 +19,8 @@ type Run struct {
 	StoppedByAP    bool
 	ImageDigest    string
 	PolicyEvidence policy.Evidence
+	AllowedTools   map[string]struct{}
+	DownstreamPort int
 }
 
 type Store struct {

@@ -1,5 +1,19 @@
 import { z } from "zod";
 
+export const StepBridgeParamsSchema = z.object({
+  image_ref: z.string().min(1),
+  allowed_tools: z.array(z.string().min(1)).min(1),
+  tool_name: z.string().min(1),
+  tool_input: z.record(z.unknown()).default({}),
+  command: z.array(z.string()).optional(),
+  args: z.array(z.string()).optional(),
+  cpu: z.string().optional(),
+  memory: z.string().optional(),
+  timeout_seconds: z.number().int().positive().max(3600).optional(),
+  network_policy_profile: z.enum(["deny-all", "dns-only"]).default("deny-all"),
+  downstream_port: z.number().int().positive().max(65535).default(8080),
+});
+
 export const RunWorkflowInputSchema = z.object({
   workflow_id: z.string().min(1),
   params: z.record(z.unknown()),

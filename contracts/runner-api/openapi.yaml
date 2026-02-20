@@ -18,6 +18,8 @@ paths:
                 command: { type: array, items: { type: string } }
                 args: { type: array, items: { type: string } }
                 env_allowlist: { type: object, additionalProperties: { type: string } }
+                allowed_tools: { type: array, items: { type: string } }
+                downstream_port: { type: integer, minimum: 1, maximum: 65535 }
                 cpu: { type: string }
                 memory: { type: string }
                 timeout_seconds: { type: integer, minimum: 1 }
@@ -25,23 +27,6 @@ paths:
       responses:
         '201':
           description: Created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run_id: { type: string }
-                  pod_name: { type: string }
-                  image_digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
-                  policy_evidence:
-                    type: object
-                    properties:
-                      registry_allowed: { type: boolean }
-                      signature_verified: { type: boolean }
-                      verifier: { type: string }
-                      identity: { type: string }
-                      resolved_digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
-                      denial_reason: { type: string }
         '403':
           description: Policy denied
   /runs/{run_id}:
@@ -74,3 +59,28 @@ paths:
           schema: { type: string }
       responses:
         '202': { description: Accepted }
+  /runs/{run_id}/tools/{tool_name}:
+    post:
+      summary: Invoke a downstream tool through runner proxy
+      parameters:
+        - in: path
+          name: run_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: tool_name
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200': { description: OK }
+        '403': { description: Tool not allowed }

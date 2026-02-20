@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: egress-deny-test
+  namespace: mcp-runs
+spec:
+  runtimeClassName: gvisor
+  restartPolicy: Never
+  activeDeadlineSeconds: 60
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: test
+      image: cgr.dev/chainguard/curl:latest
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          echo "Testing DNS and outbound HTTP under deny-egress policy"
+          if nslookup example.com; then echo "unexpected: DNS succeeded"; else echo "expected: DNS blocked"; fi
+          if curl -sS --max-time 5 https://example.com >/dev/null; then echo "unexpected: HTTP succeeded"; else echo "expected: HTTP blocked"; fi
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"

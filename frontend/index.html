@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP-Orc Canvas Builder</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <aside class="settings">
+        <header>
+          <h2>MCP Settings</h2>
+          <p>Cursor-style saved MCP servers and tools.</p>
+        </header>
+
+        <section class="panel">
+          <h3>Installed MCP Servers</h3>
+          <div id="server-list" class="server-list"></div>
+          <div class="row">
+            <button id="open-server-modal" class="ghost">+ New MCP Server</button>
+            <button id="run-diagnostics" class="ghost">Run Diagnostics</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3>mcp.json</h3>
+          <p class="muted">Edit/import definitions, then use verified servers in canvas.</p>
+          <textarea id="mcp-json" rows="12" spellcheck="false"></textarea>
+          <div class="row">
+            <button id="load-json" class="ghost">Load from JSON</button>
+            <button id="save-json" class="primary">Update JSON from UI</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3>Output</h3>
+          <pre id="output">No output yet.</pre>
+        </section>
+      </aside>
+
+      <section class="canvas-wrap">
+        <div id="canvas" class="canvas">
+          <div id="flow-track" class="flow-track">
+            <div class="trigger-stack">
+              <button id="add-trigger" class="trigger-btn">Add Trigger</button>
+              <div class="line"></div>
+              <button id="add-after-trigger" class="plus-btn" aria-label="Add node">+</button>
+            </div>
+            <div id="flow-nodes" class="flow-nodes"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="server-modal" class="modal">
+      <form method="dialog" class="modal-card">
+        <header>
+          <h3>Add MCP Server</h3>
+          <button class="ghost" value="cancel">Close</button>
+        </header>
+
+        <label>Name <input id="server-name" placeholder="Figma" /></label>
+        <label>URL <input id="server-url" placeholder="https://mcp.example.com" /></label>
+        <label>Auth
+          <select id="auth-type">
+            <option value="none">None</option>
+            <option value="oauth">OAuth</option>
+            <option value="api_key">API Key</option>
+            <option value="bearer">Bearer Token</option>
+          </select>
+        </label>
+        <div id="auth-fields"></div>
+
+        <label>Tool hints (optional comma-separated)
+          <input id="tool-hints" placeholder="get_file,search,get_components" />
+        </label>
+
+        <div class="row">
+          <button type="button" id="start-oauth" class="ghost">Start OAuth</button>
+          <button type="button" id="verify-connection" class="ghost">Verify + Discover Tools</button>
+        </div>
+        <p class="muted" id="conn-status">Not connected.</p>
+
+        <button id="save-server" type="button" class="primary">Save Server</button>
+      </form>
+    </dialog>
+
+    <dialog id="node-modal" class="modal">
+      <form method="dialog" class="modal-card">
+        <header>
+          <h3>Add Flow Node</h3>
+          <button class="ghost" value="cancel">Close</button>
+        </header>
+
+        <label>Use server
+          <select id="node-server"></select>
+        </label>
+        <label>Node id <input id="node-id" placeholder="step_figma" /></label>
+        <label>Available tools (only from verified server)
+          <select id="node-tools" multiple size="7"></select>
+        </label>
+        <label>Context mode
+          <select id="context-mode">
+            <option value="summary">Summary</option>
+            <option value="key_fields">Key fields</option>
+            <option value="chunked">Chunked references</option>
+          </select>
+        </label>
+        <label>Token budget <input id="token-budget" type="number" min="128" step="128" value="2048" /></label>
+
+        <button id="add-node" type="button" class="primary">Add Node</button>
+      </form>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

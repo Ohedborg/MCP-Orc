@@ -11,7 +11,7 @@ Security-first composed MCP server MVP.
 - ✅ Chunk 5 minimal MCP bridging path (orchestrator -> runner -> downstream tool proxy) with tool allowlist
 - ✅ Chunk 6 deterministic composed workflow tool + guidance layering + artifact persistence
 - ✅ Chunk 7 expanded audit trace + best-effort replay
-- ✅ Frontend workflow builder with white canvas chain composition for MCP server orchestration
+- ✅ Frontend workflow builder with Cursor-like settings, trigger canvas, and verified tool discovery
 
 ## Quick start
 - Infra: `infra/kind/gvisor-setup.md`, `infra/k8s/README.md`

@@ -1,11 +1,11 @@
-const STORAGE_KEY = 'mcp_orc_builder_v5';
+const STORAGE_KEY = 'mcp_orc_builder_v6';
 
 const state = loadState();
 
 const outputEl = document.getElementById('output');
 const serverListEl = document.getElementById('server-list');
 const mcpJsonEl = document.getElementById('mcp-json');
-const flowTrackEl = document.getElementById('flow-track');
+const flowNodesEl = document.getElementById('flow-nodes');
 
 const serverModal = document.getElementById('server-modal');
 const nodeModal = document.getElementById('node-modal');
@@ -76,40 +76,80 @@ function renderAuthFields() {
     return;
   }
   if (auth === 'oauth') {
-    authFieldsEl.innerHTML = '<p class="muted">OAuth is initiated with the button below (no manual client details required).</p>';
+    authFieldsEl.innerHTML = '<p class="muted">Click “Start OAuth” to initiate auth. No manual client fields needed.</p>';
     return;
   }
   authFieldsEl.innerHTML = '<p class="muted">No authentication needed.</p>';
 }
 
-function verifyConnection(mode) {
+async function verifyConnection(mode) {
   const server = buildServerDraft();
   if (!server.name || !server.url) {
     outputEl.textContent = 'Server requires name + URL before verification.';
     return;
   }
 
-  if (server.auth.type === 'oauth' && mode !== 'oauth') {
-    outputEl.textContent = 'For OAuth servers use “Start OAuth”.';
-    return;
+  if (server.auth.type === 'oauth') {
+    if (mode !== 'oauth') {
+      outputEl.textContent = 'For OAuth servers, click “Start OAuth”.';
+      return;
+    }
+    server.auth.details.oauth = 'initiated';
   }
 
-  const tools = discoverTools(server);
+  connStatusEl.textContent = 'Verifying connection and discovering tools...';
+
+  const discovery = await discoverViaProxy(server);
+  const discoveredTools = discovery.tools.length ? discovery.tools : server.toolHints;
+
   connectedDraft = {
     ...server,
-    connected: true,
+    connected: discovery.ok,
     enabled: true,
-    tools,
+    tools: discoveredTools,
     verifiedAt: new Date().toISOString(),
+    status: discovery.ok ? 'verified' : 'failed',
+    lastError: discovery.ok ? '' : discovery.error,
   };
 
-  connStatusEl.textContent = `Connected. ${tools.length} tools discovered.`;
-  outputEl.textContent = `Verified ${server.name}. Tools available only after connection check.`;
+  if (discovery.ok) {
+    connStatusEl.textContent = `Connected. ${discoveredTools.length} tools discovered.`;
+    outputEl.textContent = `Verified ${server.name}. Tools are now available for node selection.`;
+  } else {
+    connStatusEl.textContent = `Verification failed: ${discovery.error}`;
+    outputEl.textContent = `Could not verify ${server.name}. ${discovery.error}`;
+  }
+}
+
+async function discoverViaProxy(server) {
+  try {
+    const response = await fetch('/mcp/discover', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        server_url: server.url,
+        auth: server.auth,
+      }),
+    });
+
+    const body = await response.json();
+    if (!response.ok) {
+      return { ok: false, error: body.error || `HTTP ${response.status}`, tools: [] };
+    }
+
+    return {
+      ok: Boolean(body.ok),
+      error: body.error || '',
+      tools: Array.isArray(body.tools) ? body.tools : [],
+    };
+  } catch (error) {
+    return { ok: false, error: String(error.message || error), tools: [] };
+  }
 }
 
 function saveServer() {
-  if (!connectedDraft) {
-    outputEl.textContent = 'Verify connection first. Tools are loaded only after verification.';
+  if (!connectedDraft || !connectedDraft.connected) {
+    outputEl.textContent = 'Verify a successful connection first. Only verified servers expose tools.';
     return;
   }
 
@@ -125,7 +165,6 @@ function buildServerDraft() {
 
   if (authType === 'api_key') authDetails.api_key = document.getElementById('auth-api-key')?.value || '';
   if (authType === 'bearer') authDetails.token = document.getElementById('auth-bearer')?.value || '';
-  if (authType === 'oauth') authDetails.oauth = 'initiated';
 
   return {
     id: crypto.randomUUID(),
@@ -135,13 +174,6 @@ function buildServerDraft() {
     toolHints: splitCsv(toolHintsEl.value),
     tools: [],
   };
-}
-
-function discoverTools(server) {
-  if (server.toolHints.length) return server.toolHints;
-
-  const base = server.name.toLowerCase().replace(/\s+/g, '_') || 'mcp';
-  return [`${base}.search`, `${base}.read`, `${base}.execute`];
 }
 
 function upsertServer(server) {
@@ -164,13 +196,15 @@ function renderServers() {
       <div class="server-head">
         <div>
           <strong>${escapeHtml(server.name)}</strong>
-          <div class="server-meta">${escapeHtml(server.tools.length)} tools ${server.connected ? 'available' : 'unavailable'} · ${escapeHtml(server.auth.type)}</div>
+          <div class="server-meta">${escapeHtml(server.tools.length)} tools · ${escapeHtml(server.auth.type)}</div>
+          <div class="server-status">${server.connected ? '✅ verified' : '⚠️ unverified'} ${server.lastError ? `· ${escapeHtml(server.lastError)}` : ''}</div>
         </div>
         <button class="toggle ${server.enabled ? 'on' : ''}" data-toggle="${server.id}" aria-label="toggle"></button>
       </div>
       <div class="server-meta">${escapeHtml(server.url)}</div>
       <div class="server-actions">
         <button class="ghost" data-open-node="${server.id}">Add to flow</button>
+        <button class="warn" data-reverify="${server.id}">Re-verify</button>
         <button class="ghost" data-delete-server="${server.id}">Delete</button>
       </div>
     </article>
@@ -200,6 +234,22 @@ function renderServers() {
   document.querySelectorAll('[data-open-node]').forEach((el) => {
     el.addEventListener('click', () => openNodePicker(el.getAttribute('data-open-node')));
   });
+
+  document.querySelectorAll('[data-reverify]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const id = el.getAttribute('data-reverify');
+      const server = state.servers.find((item) => item.id === id);
+      if (!server) return;
+
+      const discovery = await discoverViaProxy(server);
+      server.connected = discovery.ok;
+      server.tools = discovery.tools.length ? discovery.tools : server.tools;
+      server.lastError = discovery.ok ? '' : discovery.error;
+      server.status = discovery.ok ? 'verified' : 'failed';
+      persist();
+      renderServers();
+    });
+  });
 }
 
 function openNodePicker(serverId = '') {
@@ -209,9 +259,9 @@ function openNodePicker(serverId = '') {
 }
 
 function fillServerOptions(selected) {
-  const available = state.servers.filter((server) => server.connected && server.enabled);
+  const available = state.servers.filter((server) => server.connected && server.enabled && server.tools.length > 0);
   if (!available.length) {
-    nodeServerEl.innerHTML = '<option value="">No connected servers</option>';
+    nodeServerEl.innerHTML = '<option value="">No verified servers with tools</option>';
     nodeToolsEl.innerHTML = '';
     return;
   }
@@ -223,7 +273,7 @@ function fillServerOptions(selected) {
 
 function fillToolOptions(serverId) {
   const server = state.servers.find((item) => item.id === serverId);
-  if (!server || !server.connected) {
+  if (!server || !server.connected || !server.tools.length) {
     nodeToolsEl.innerHTML = '';
     return;
   }
@@ -237,11 +287,11 @@ function addNode() {
   const selectedTools = Array.from(nodeToolsEl.selectedOptions).map((opt) => opt.value);
 
   if (!serverId) {
-    outputEl.textContent = 'Pick a connected server first.';
+    outputEl.textContent = 'Pick a verified server first.';
     return;
   }
   if (!selectedTools.length) {
-    outputEl.textContent = 'Select at least one available tool.';
+    outputEl.textContent = 'Select at least one discovered tool.';
     return;
   }
   if (state.nodes.some((node) => node.id === nodeId)) {
@@ -265,48 +315,61 @@ function addNode() {
 }
 
 function renderFlow() {
-  const existing = flowTrackEl.querySelector('.node-col');
-  if (existing) existing.remove();
+  flowNodesEl.innerHTML = '';
 
   if (!state.nodes.length) return;
 
-  const col = document.createElement('div');
-  col.className = 'node-col';
-
   state.nodes.forEach((node) => {
     const wrap = document.createElement('div');
+    wrap.className = 'node-stack';
     wrap.innerHTML = `
-      <div class="connector"></div>
       <article class="node">
         <h4>${escapeHtml(node.id)}</h4>
         <p><strong>Server:</strong> ${escapeHtml(node.serverName)}</p>
         <p><strong>Tools:</strong> ${escapeHtml(node.tools.join(', '))}</p>
         <p><strong>Context:</strong> ${escapeHtml(node.contextMode)} · ${node.tokenBudget} tokens</p>
+        <div class="node-actions">
+          <button class="warn" data-remove-node="${escapeHtml(node.id)}">Remove</button>
+        </div>
       </article>
+      <div class="line"></div>
       <button class="plus-btn" data-after-node="${escapeHtml(node.id)}">+</button>
     `;
-    col.appendChild(wrap);
+    flowNodesEl.appendChild(wrap);
   });
 
-  flowTrackEl.appendChild(col);
-  col.querySelectorAll('[data-after-node]').forEach((btn) => {
+  flowNodesEl.querySelectorAll('[data-after-node]').forEach((btn) => {
     btn.addEventListener('click', () => openNodePicker());
+  });
+
+  flowNodesEl.querySelectorAll('[data-remove-node]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nodeId = btn.getAttribute('data-remove-node');
+      state.nodes = state.nodes.filter((node) => node.id !== nodeId);
+      persist();
+      renderFlow();
+    });
   });
 }
 
 function loadFromJson() {
   try {
     const parsed = JSON.parse(mcpJsonEl.value || '{}');
-    const servers = Object.entries(parsed.mcpServers || {}).map(([name, cfg]) => ({
-      id: crypto.randomUUID(),
-      name,
-      url: cfg.url || 'local://stdio',
-      auth: cfg.auth || { type: 'none', details: {} },
-      toolHints: cfg.tools || [],
-      tools: cfg.tools || [],
-      connected: true,
-      enabled: true,
-    }));
+    const servers = Object.entries(parsed.mcpServers || {}).map(([name, cfg]) => {
+      const tools = parseToolsFromConfig(cfg);
+      return {
+        id: crypto.randomUUID(),
+        name,
+        url: cfg.url || 'local://stdio',
+        auth: cfg.auth || { type: 'none', details: {} },
+        toolHints: tools,
+        tools,
+        connected: tools.length > 0,
+        enabled: cfg.enabled !== false,
+        status: tools.length > 0 ? 'verified' : 'unverified',
+        lastError: tools.length ? '' : 'No tools in config. Re-verify to discover.',
+      };
+    });
 
     state.servers = servers;
     state.nodes = [];
@@ -318,6 +381,16 @@ function loadFromJson() {
   }
 }
 
+function parseToolsFromConfig(cfg = {}) {
+  if (Array.isArray(cfg.tools)) return cfg.tools;
+  if (Array.isArray(cfg.toolNames)) return cfg.toolNames;
+  if (Array.isArray(cfg.availableTools)) return cfg.availableTools;
+  if (cfg.capabilities?.tools && typeof cfg.capabilities.tools === 'object') {
+    return Object.keys(cfg.capabilities.tools);
+  }
+  return [];
+}
+
 function saveToJson() {
   const json = {
     mcpServers: Object.fromEntries(
@@ -326,6 +399,7 @@ function saveToJson() {
         auth: { type: server.auth.type, details: '<redacted>' },
         tools: server.tools,
         enabled: server.enabled,
+        verified: server.connected,
       }]),
     ),
     workflow: state.nodes.map((node, i) => ({

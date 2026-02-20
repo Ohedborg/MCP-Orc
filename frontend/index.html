@@ -22,7 +22,7 @@
 
         <section class="panel">
           <h3>mcp.json</h3>
-          <p class="muted">Edit and import server definitions (like Cursor config).</p>
+          <p class="muted">Edit/import definitions, then use verified servers in canvas.</p>
           <textarea id="mcp-json" rows="12" spellcheck="false"></textarea>
           <div class="row">
             <button id="load-json" class="ghost">Load from JSON</button>
@@ -39,8 +39,12 @@
       <section class="canvas-wrap">
         <div id="canvas" class="canvas">
           <div id="flow-track" class="flow-track">
-            <button id="add-trigger" class="trigger-btn">Add Trigger</button>
-            <button id="add-after-trigger" class="plus-btn" aria-label="Add node">+</button>
+            <div class="trigger-stack">
+              <button id="add-trigger" class="trigger-btn">Add Trigger</button>
+              <div class="line"></div>
+              <button id="add-after-trigger" class="plus-btn" aria-label="Add node">+</button>
+            </div>
+            <div id="flow-nodes" class="flow-nodes"></div>
           </div>
         </div>
       </section>
@@ -64,12 +68,14 @@
           </select>
         </label>
         <div id="auth-fields"></div>
+
         <label>Tool hints (optional comma-separated)
           <input id="tool-hints" placeholder="get_file,search,get_components" />
         </label>
+
         <div class="row">
-          <button type="button" id="verify-connection" class="ghost">Verify Connection</button>
           <button type="button" id="start-oauth" class="ghost">Start OAuth</button>
+          <button type="button" id="verify-connection" class="ghost">Verify + Discover Tools</button>
         </div>
         <p class="muted" id="conn-status">Not connected.</p>
 
@@ -88,7 +94,7 @@
           <select id="node-server"></select>
         </label>
         <label>Node id <input id="node-id" placeholder="step_figma" /></label>
-        <label>Available tools (after connection)
+        <label>Available tools (only from verified server)
           <select id="node-tools" multiple size="7"></select>
         </label>
         <label>Context mode

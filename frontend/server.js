@@ -30,12 +30,8 @@ async function readJson(req) {
 }
 
 function authHeaders(auth = { type: 'none', details: {} }) {
-  if (auth?.type === 'api_key' && auth.details?.api_key) {
-    return { 'x-api-key': auth.details.api_key };
-  }
-  if (auth?.type === 'bearer' && auth.details?.token) {
-    return { authorization: `Bearer ${auth.details.token}` };
-  }
+  if (auth?.type === 'api_key' && auth.details?.api_key) return { 'x-api-key': auth.details.api_key };
+  if (auth?.type === 'bearer' && auth.details?.token) return { authorization: `Bearer ${auth.details.token}` };
   return {};
 }
 
@@ -46,11 +42,7 @@ function normalizeTools(payload) {
   const tools = payload.tools || payload.result?.tools;
   if (Array.isArray(tools)) {
     return tools
-      .map((tool) => {
-        if (typeof tool === 'string') return tool;
-        if (typeof tool?.name === 'string') return tool.name;
-        return null;
-      })
+      .map((tool) => (typeof tool === 'string' ? tool : typeof tool?.name === 'string' ? tool.name : null))
       .filter(Boolean);
   }
 
@@ -61,13 +53,25 @@ function normalizeTools(payload) {
   return [];
 }
 
-async function postJsonRpc(url, auth, message, extraHeaders = {}) {
+function getHttpCandidates(serverUrl) {
+  const base = serverUrl.replace(/\/$/, '');
+  const urls = new Set([base, `${base}/mcp`, `${base}/tools`, `${base}/mcp/tools`]);
+
+  if (base.endsWith('/mcp')) {
+    const rootUrl = base.slice(0, -4) || '/';
+    urls.add(rootUrl);
+    urls.add(`${rootUrl}/tools`);
+  }
+
+  return [...urls];
+}
+
+async function postJsonRpc(url, auth, message) {
   const headers = {
     accept: 'application/json, text/event-stream',
     'content-type': 'application/json',
     'mcp-protocol-version': MCP_PROTOCOL_VERSION,
     ...authHeaders(auth),
-    ...extraHeaders,
   };
 
   const response = await fetch(url, {
@@ -88,11 +92,9 @@ async function postJsonRpc(url, auth, message, extraHeaders = {}) {
 }
 
 async function discoverToolsViaHttp(serverUrl, auth) {
-  const base = serverUrl.replace(/\/$/, '');
+  let lastError = 'No MCP response.';
 
-  const endpointCandidates = [base, `${base}/mcp`, `${base}/tools`, `${base}/mcp/tools`];
-
-  for (const endpoint of endpointCandidates) {
+  for (const endpoint of getHttpCandidates(serverUrl)) {
     try {
       const init = await postJsonRpc(endpoint, auth, {
         jsonrpc: '2.0',
@@ -105,7 +107,10 @@ async function discoverToolsViaHttp(serverUrl, auth) {
         },
       });
 
-      if (!init.response.ok && !endpoint.endsWith('/tools')) continue;
+      if (!init.response.ok) {
+        lastError = `${endpoint} initialize status ${init.response.status}`;
+        continue;
+      }
 
       await postJsonRpc(endpoint, auth, {
         jsonrpc: '2.0',

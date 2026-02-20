@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-runner
+  namespace: mcp-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-runner
+  template:
+    metadata:
+      labels:
+        app: mcp-runner
+    spec:
+      serviceAccountName: mcp-runner
+      automountServiceAccountToken: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: ghcr.io/example/mcp-runner:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: RUNNER_NAMESPACE
+              value: mcp-runs
+            - name: RUNNER_RUNTIMECLASS
+              value: gvisor
+            - name: RUNNER_ALLOWLISTED_REGISTRIES
+              value: cgr.dev,ghcr.io
+            - name: RUNNER_REQUIRE_COSIGN
+              value: "true"
+            - name: RUNNER_COSIGN_IDENTITY
+              value: "https://github.com/your-org/your-repo/.github/workflows/release.yml@refs/heads/main"
+            - name: RUNNER_COSIGN_ISSUER
+              value: "https://token.actions.githubusercontent.com"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

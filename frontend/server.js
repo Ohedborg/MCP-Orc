@@ -8,6 +8,7 @@ const port = Number(process.env.FRONTEND_PORT || '4173');
 const runnerBase = process.env.RUNNER_BASE_URL || 'http://127.0.0.1:8080';
 
 const root = path.resolve(process.cwd());
+const MCP_PROTOCOL_VERSION = '2024-11-05';
 
 function sendFile(res, filePath, contentType) {
   fs.readFile(filePath, (err, data) => {
@@ -60,57 +61,78 @@ function normalizeTools(payload) {
   return [];
 }
 
+async function postJsonRpc(url, auth, message, extraHeaders = {}) {
+  const headers = {
+    accept: 'application/json, text/event-stream',
+    'content-type': 'application/json',
+    'mcp-protocol-version': MCP_PROTOCOL_VERSION,
+    ...authHeaders(auth),
+    ...extraHeaders,
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(message),
+  });
+
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = {};
+  }
+
+  return { response, payload, raw: text };
+}
+
 async function discoverToolsViaHttp(serverUrl, auth) {
-  const headers = { accept: 'application/json', ...authHeaders(auth) };
   const base = serverUrl.replace(/\/$/, '');
 
-  const attempts = [
-    { method: 'GET', url: `${base}/tools`, headers },
-    { method: 'GET', url: `${base}/mcp/tools`, headers },
-    {
-      method: 'POST',
-      url: base,
-      headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({
+  const endpointCandidates = [base, `${base}/mcp`, `${base}/tools`, `${base}/mcp/tools`];
+
+  for (const endpoint of endpointCandidates) {
+    try {
+      const init = await postJsonRpc(endpoint, auth, {
         jsonrpc: '2.0',
         id: 'initialize-1',
         method: 'initialize',
         params: {
-          protocolVersion: '2024-11-05',
+          protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: 'mcp-orc-frontend', version: '0.1.0' },
         },
-      }),
-    },
-    {
-      method: 'POST',
-      url: base,
-      headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 'tools-1', method: 'tools/list', params: {} }),
-    },
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const response = await fetch(attempt.url, {
-        method: attempt.method,
-        headers: attempt.headers,
-        body: attempt.body,
       });
-      if (!response.ok) continue;
 
-      const text = await response.text();
-      const payload = text ? JSON.parse(text) : {};
-      const tools = normalizeTools(payload);
-      if (tools.length) return { ok: true, tools, transport: 'http' };
+      if (!init.response.ok && !endpoint.endsWith('/tools')) continue;
+
+      await postJsonRpc(endpoint, auth, {
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+        params: {},
+      }).catch(() => {});
+
+      const list = await postJsonRpc(endpoint, auth, {
+        jsonrpc: '2.0',
+        id: 'tools-1',
+        method: 'tools/list',
+        params: {},
+      });
+
+      if (!list.response.ok) continue;
+      const tools = normalizeTools(list.payload);
+      if (tools.length) {
+        return { ok: true, tools, transport: 'http' };
+      }
     } catch {
-      // continue trying other endpoints
+      // try next endpoint
     }
   }
 
   return {
     ok: false,
-    error: 'HTTP discovery failed. Ensure MCP server supports HTTP transport and tools/list.',
+    error: 'HTTP MCP discovery failed. Ensure the URL points to MCP transport endpoint and supports initialize/tools/list.',
     tools: [],
     transport: 'http',
   };
@@ -128,23 +150,21 @@ function createRpcReader(stream, onMessage) {
   stream.on('data', (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
 
+    // framed protocol
     while (true) {
       const headerEnd = buffer.indexOf('\r\n\r\n');
-      if (headerEnd < 0) return;
+      if (headerEnd < 0) break;
 
       const headerText = buffer.slice(0, headerEnd).toString('utf8');
       const contentLengthLine = headerText
         .split('\r\n')
         .find((line) => line.toLowerCase().startsWith('content-length:'));
 
-      if (!contentLengthLine) {
-        buffer = Buffer.alloc(0);
-        return;
-      }
+      if (!contentLengthLine) break;
 
       const length = Number(contentLengthLine.split(':')[1]?.trim() || 0);
       const totalSize = headerEnd + 4 + length;
-      if (buffer.length < totalSize) return;
+      if (buffer.length < totalSize) break;
 
       const jsonBody = buffer.slice(headerEnd + 4, totalSize).toString('utf8');
       buffer = buffer.slice(totalSize);
@@ -152,17 +172,47 @@ function createRpcReader(stream, onMessage) {
       try {
         onMessage(JSON.parse(jsonBody));
       } catch {
-        // ignore malformed message and continue
+        // ignore malformed
+      }
+    }
+
+    // fallback: json-lines (some non-compliant implementations)
+    const asText = buffer.toString('utf8');
+    if (asText.includes('\n')) {
+      const lines = asText.split('\n');
+      buffer = Buffer.from(lines.pop() || '', 'utf8');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('{')) continue;
+        try {
+          onMessage(JSON.parse(trimmed));
+        } catch {
+          // ignore
+        }
       }
     }
   });
 }
 
+function normalizeCommand(command, args) {
+  const safeArgs = Array.isArray(args) ? [...args] : [];
+
+  if (command === 'npx' && !safeArgs.includes('-y') && !safeArgs.includes('--yes')) {
+    safeArgs.unshift('-y');
+  }
+
+  return { command, args: safeArgs };
+}
+
 async function discoverToolsViaStdio(commandConfig) {
-  const command = commandConfig.command;
-  const args = Array.isArray(commandConfig.args) ? commandConfig.args : [];
+  const rawCommand = commandConfig.command;
+  const normalized = normalizeCommand(rawCommand, commandConfig.args);
+  const command = normalized.command;
+  const args = normalized.args;
+
   const env = {
     ...process.env,
+    npm_config_yes: 'true',
     ...(commandConfig.env && typeof commandConfig.env === 'object' ? commandConfig.env : {}),
   };
 
@@ -181,7 +231,7 @@ async function discoverToolsViaStdio(commandConfig) {
     const timeout = setTimeout(() => {
       proc.kill('SIGKILL');
       resolve({ ok: false, tools: [], error: 'Timeout talking to stdio MCP server.', transport: 'stdio' });
-    }, 12000);
+    }, 18000);
 
     let stderrOutput = '';
     proc.stderr.on('data', (chunk) => {
@@ -215,7 +265,7 @@ async function discoverToolsViaStdio(commandConfig) {
     (async () => {
       try {
         const init = await requestRpc('init-1', 'initialize', {
-          protocolVersion: '2024-11-05',
+          protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: 'mcp-orc-frontend', version: '0.1.0' },
         });

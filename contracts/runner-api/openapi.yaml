@@ -32,6 +32,18 @@ paths:
                 properties:
                   run_id: { type: string }
                   pod_name: { type: string }
+                  image_digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+                  policy_evidence:
+                    type: object
+                    properties:
+                      registry_allowed: { type: boolean }
+                      signature_verified: { type: boolean }
+                      verifier: { type: string }
+                      identity: { type: string }
+                      resolved_digest: { type: string, pattern: '^sha256:[a-f0-9]{64}$' }
+                      denial_reason: { type: string }
+        '403':
+          description: Policy denied
   /runs/{run_id}:
     get:
       summary: Get run status

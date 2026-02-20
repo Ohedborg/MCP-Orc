@@ -14,17 +14,19 @@ import (
 	"github.com/mcp-orc/runner/internal/audit"
 	"github.com/mcp-orc/runner/internal/config"
 	"github.com/mcp-orc/runner/internal/k8s"
+	"github.com/mcp-orc/runner/internal/policy"
 	"github.com/mcp-orc/runner/internal/runs"
 )
 
 type Handler struct {
-	cfg   config.Config
-	k8s   *k8s.Client
-	store *runs.Store
+	cfg       config.Config
+	policyCfg policy.Config
+	k8s       *k8s.Client
+	store     *runs.Store
 }
 
-func NewHandler(cfg config.Config, k *k8s.Client, s *runs.Store) *Handler {
-	return &Handler{cfg: cfg, k8s: k, store: s}
+func NewHandler(cfg config.Config, policyCfg policy.Config, k *k8s.Client, s *runs.Store) *Handler {
+	return &Handler{cfg: cfg, policyCfg: policyCfg, k8s: k, store: s}
 }
 
 func (h *Handler) Router() http.Handler {
@@ -47,6 +49,13 @@ func (h *Handler) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pinnedRef, evidence, err := policy.Enforce(h.policyCfg, req.ImageRef)
+	if err != nil {
+		audit.Event("run_create_denied", map[string]any{"reason": err.Error(), "image_ref": req.ImageRef, "policy_evidence": evidence})
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "policy_denied", "policy_evidence": evidence})
+		return
+	}
+
 	runID := uuid.NewString()
 	cpu := req.CPU
 	if cpu == "" {
@@ -64,7 +73,7 @@ func (h *Handler) createRun(w http.ResponseWriter, r *http.Request) {
 	podName, err := h.k8s.CreateRunPod(r.Context(), k8s.PodSpecInput{
 		Namespace:        h.cfg.Namespace,
 		RunID:            runID,
-		ImageRef:         req.ImageRef,
+		ImageRef:         pinnedRef,
 		Command:          req.Command,
 		Args:             req.Args,
 		EnvAllowlist:     req.EnvAllowlist,
@@ -75,22 +84,24 @@ func (h *Handler) createRun(w http.ResponseWriter, r *http.Request) {
 		ImagePullPolicy:  corev1.PullPolicy(h.cfg.ImagePullPolicy),
 	})
 	if err != nil {
-		audit.Event("run_create_denied", map[string]any{"reason": err.Error(), "image_ref": req.ImageRef})
+		audit.Event("run_create_denied", map[string]any{"reason": err.Error(), "image_ref": req.ImageRef, "policy_evidence": evidence})
 		http.Error(w, "pod creation failed", http.StatusInternalServerError)
 		return
 	}
 
 	h.store.Put(runs.Run{
-		RunID:     runID,
-		PodName:   podName,
-		Namespace: h.cfg.Namespace,
-		Status:    "starting",
-		CreatedAt: time.Now().UTC(),
+		RunID:          runID,
+		PodName:        podName,
+		Namespace:      h.cfg.Namespace,
+		Status:         "starting",
+		CreatedAt:      time.Now().UTC(),
+		ImageDigest:    evidence.ResolvedDigest,
+		PolicyEvidence: evidence,
 	})
 	h.k8s.WaitAndDelete(h.cfg.Namespace, podName, h.cfg.CleanupSeconds)
-	audit.Event("run_created", map[string]any{"run_id": runID, "pod_name": podName, "runtime_class": h.cfg.RuntimeClassName, "network_policy_profile": req.NetworkPolicyProfile})
+	audit.Event("run_created", map[string]any{"run_id": runID, "pod_name": podName, "runtime_class": h.cfg.RuntimeClassName, "image_digest": evidence.ResolvedDigest, "network_policy_profile": req.NetworkPolicyProfile, "policy_evidence": evidence})
 
-	writeJSON(w, http.StatusCreated, CreateRunResponse{RunID: runID, PodName: podName})
+	writeJSON(w, http.StatusCreated, CreateRunResponse{RunID: runID, PodName: podName, ImageDigest: evidence.ResolvedDigest, PolicyEvidence: evidence})
 }
 
 func (h *Handler) getRun(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +122,15 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request) {
 		run, _ = h.store.Get(runID)
 	}
 
-	writeJSON(w, http.StatusOK, RunStatusResponse{RunID: run.RunID, Status: run.Status, PodName: run.PodName, Namespace: run.Namespace, Reason: run.Reason})
+	writeJSON(w, http.StatusOK, RunStatusResponse{
+		RunID:          run.RunID,
+		Status:         run.Status,
+		PodName:        run.PodName,
+		Namespace:      run.Namespace,
+		Reason:         run.Reason,
+		ImageDigest:    run.ImageDigest,
+		PolicyEvidence: run.PolicyEvidence,
+	})
 }
 
 func (h *Handler) getRunLogs(w http.ResponseWriter, r *http.Request) {

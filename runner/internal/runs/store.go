@@ -4,17 +4,21 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/mcp-orc/runner/internal/policy"
 )
 
 type Run struct {
-	RunID       string
-	PodName     string
-	Namespace   string
-	Status      string
-	Reason      string
-	CreatedAt   time.Time
-	FinishedAt  *time.Time
-	StoppedByAP bool
+	RunID          string
+	PodName        string
+	Namespace      string
+	Status         string
+	Reason         string
+	CreatedAt      time.Time
+	FinishedAt     *time.Time
+	StoppedByAP    bool
+	ImageDigest    string
+	PolicyEvidence policy.Evidence
 }
 
 type Store struct {

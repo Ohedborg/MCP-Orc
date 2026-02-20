@@ -1,5 +1,7 @@
 package api
 
+import "github.com/mcp-orc/runner/internal/policy"
+
 type CreateRunRequest struct {
 	ImageRef             string            `json:"image_ref"`
 	Command              []string          `json:"command,omitempty"`
@@ -12,16 +14,20 @@ type CreateRunRequest struct {
 }
 
 type CreateRunResponse struct {
-	RunID   string `json:"run_id"`
-	PodName string `json:"pod_name"`
+	RunID          string          `json:"run_id"`
+	PodName        string          `json:"pod_name"`
+	ImageDigest    string          `json:"image_digest"`
+	PolicyEvidence policy.Evidence `json:"policy_evidence"`
 }
 
 type RunStatusResponse struct {
-	RunID     string `json:"run_id"`
-	Status    string `json:"status"`
-	PodName   string `json:"pod_name"`
-	Namespace string `json:"namespace"`
-	Reason    string `json:"reason,omitempty"`
+	RunID          string          `json:"run_id"`
+	Status         string          `json:"status"`
+	PodName        string          `json:"pod_name"`
+	Namespace      string          `json:"namespace"`
+	Reason         string          `json:"reason,omitempty"`
+	ImageDigest    string          `json:"image_digest,omitempty"`
+	PolicyEvidence policy.Evidence `json:"policy_evidence"`
 }
 
 type LogsResponse struct {

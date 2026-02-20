@@ -29,6 +29,14 @@ spec:
               value: mcp-runs
             - name: RUNNER_RUNTIMECLASS
               value: gvisor
+            - name: RUNNER_ALLOWLISTED_REGISTRIES
+              value: cgr.dev,ghcr.io
+            - name: RUNNER_REQUIRE_COSIGN
+              value: "true"
+            - name: RUNNER_COSIGN_IDENTITY
+              value: "https://github.com/your-org/your-repo/.github/workflows/release.yml@refs/heads/main"
+            - name: RUNNER_COSIGN_ISSUER
+              value: "https://token.actions.githubusercontent.com"
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

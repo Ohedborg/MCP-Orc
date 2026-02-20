@@ -7,6 +7,7 @@
 - kind
 - kubectl
 - gVisor (`runsc`) installed on host
+- cosign installed and runner trust config set (`RUNNER_COSIGN_*`)
 
 ## Create cluster
 ```bash
@@ -61,7 +62,7 @@ kubectl -n mcp-runs logs egress-deny-test
 ## Verify runner launch path
 ```bash
 kubectl -n mcp-system port-forward svc/mcp-runner 8080:8080
-curl -sS -X POST http://127.0.0.1:8080/runs -H 'Content-Type: application/json' \
-  -d '{"image_ref":"cgr.dev/chainguard/curl:latest","network_policy_profile":"deny-all","timeout_seconds":60}'
+curl -i -sS -X POST http://127.0.0.1:8080/runs -H 'Content-Type: application/json' \
+  -d '{"image_ref":"docker.io/library/alpine:latest","network_policy_profile":"deny-all"}'
 ```
-Then poll `/runs/{run_id}` and `/runs/{run_id}/logs`.
+Expected: `403` policy deny for non-allowlisted registry.

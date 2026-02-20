@@ -11,17 +11,19 @@ import (
 	"github.com/mcp-orc/runner/internal/api"
 	"github.com/mcp-orc/runner/internal/config"
 	"github.com/mcp-orc/runner/internal/k8s"
+	"github.com/mcp-orc/runner/internal/policy"
 	"github.com/mcp-orc/runner/internal/runs"
 )
 
 func main() {
 	cfg := config.FromEnv()
+	policyCfg := policy.ConfigFromEnv()
 	k, err := k8s.NewClient()
 	if err != nil {
 		log.Fatalf("init k8s client: %v", err)
 	}
 
-	h := api.NewHandler(cfg, k, runs.NewStore())
+	h := api.NewHandler(cfg, policyCfg, k, runs.NewStore())
 	srv := &http.Server{Addr: cfg.Addr, Handler: h.Router()}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

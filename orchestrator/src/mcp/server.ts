@@ -9,6 +9,8 @@ import {
   BuildComponentWorkflowInputSchema,
   BuildComponentWorkflowOutputSchema,
   GetRunTraceInputSchema,
+  ReplayRunInputSchema,
+  ReplayRunOutputSchema,
   RunTraceSchema,
   RunWorkflowInputSchema,
   RunWorkflowOutputSchema,
@@ -18,18 +20,12 @@ import { createRun, invokeTool } from "../runner-client/client.js";
 import { executeWorkflowFile } from "../workflows/engine.js";
 
 export function createMcpServer(repository: Repository): McpServer {
-  const server = new McpServer({
-    name: "mcp-orc-orchestrator",
-    version: "0.1.0",
-  });
+  const server = new McpServer({ name: "mcp-orc-orchestrator", version: "0.1.0" });
 
   server.tool(
     "run_workflow",
     "Queue and execute a minimal single-step bridged workflow.",
-    {
-      workflow_id: RunWorkflowInputSchema.shape.workflow_id,
-      params: RunWorkflowInputSchema.shape.params,
-    },
+    { workflow_id: RunWorkflowInputSchema.shape.workflow_id, params: RunWorkflowInputSchema.shape.params },
     async (rawInput) => {
       const reqId = requestId();
       const input = RunWorkflowInputSchema.parse(rawInput);
@@ -38,6 +34,7 @@ export function createMcpServer(repository: Repository): McpServer {
 
       repository.insertRun({ run_id: runId, workflow_id: input.workflow_id, status: "queued", created_at: createdAt, started_at: null, finished_at: null, error: null });
       repository.insertStep(runId, "workflow-init", "queued");
+      repository.insertAudit(runId, "workflow_input", JSON.stringify(redactSensitive(input.params)));
 
       try {
         repository.updateRunStatus(runId, "running");
@@ -54,16 +51,15 @@ export function createMcpServer(repository: Repository): McpServer {
           network_policy_profile: bridge.network_policy_profile,
         });
 
+        repository.insertAudit(
+          runId,
+          "bridge_execution",
+          JSON.stringify(redactSensitive({ image_digest: runnerRun.image_digest, policy_evidence: runnerRun.policy_evidence })),
+        );
+
         const invoke = await invokeTool(runnerRun.run_id, bridge.tool_name, bridge.tool_input);
         repository.insertStep(runId, "bridge-tool-call", "completed");
-        repository.insertToolCall({
-          run_id: runId,
-          step_id: "bridge-tool-call",
-          tool_name: bridge.tool_name,
-          input_redacted: JSON.stringify(redactSensitive(bridge.tool_input)),
-          output_redacted: JSON.stringify(redactSensitive(invoke.output)),
-          created_at: new Date().toISOString(),
-        });
+        repository.insertToolCall({ run_id: runId, step_id: "bridge-tool-call", tool_name: bridge.tool_name, input_redacted: JSON.stringify(redactSensitive(bridge.tool_input)), output_redacted: JSON.stringify(redactSensitive(invoke.output)), created_at: new Date().toISOString() });
         repository.updateRunStatus(runId, "completed");
       } catch (error) {
         repository.insertStep(runId, "bridge-tool-call", "failed");
@@ -73,7 +69,6 @@ export function createMcpServer(repository: Repository): McpServer {
       const run = repository.getRun(runId);
       const output = RunWorkflowOutputSchema.parse({ run_id: runId, status: run?.status ?? "failed" });
       log("info", "workflow run handled", { request_id: reqId, tool: "run_workflow", run_id: runId, workflow_id: input.workflow_id, status: output.status });
-
       return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
     },
   );
@@ -81,9 +76,7 @@ export function createMcpServer(repository: Repository): McpServer {
   server.tool(
     "build_component_workflow",
     "Execute deterministic multi-step component build workflow.",
-    {
-      component_name: BuildComponentWorkflowInputSchema.shape.component_name,
-    },
+    { component_name: BuildComponentWorkflowInputSchema.shape.component_name },
     async (rawInput) => {
       const reqId = requestId();
       const input = BuildComponentWorkflowInputSchema.parse(rawInput);
@@ -96,6 +89,7 @@ export function createMcpServer(repository: Repository): McpServer {
         repository.updateRunStatus(runId, "running");
         const workflowFile = path.resolve(process.cwd(), "workflows/sample/build_component_workflow.json");
         const result = await executeWorkflowFile(repository, runId, workflowFile, { component_name: input.component_name });
+        repository.insertAudit(runId, "workflow_hash", JSON.stringify({ workflow_hash: result.workflow_hash }));
         repository.updateRunStatus(runId, "completed");
         output = BuildComponentWorkflowOutputSchema.parse({ run_id: runId, status: "completed", final_output: redactSensitive(result.final_output) });
       } catch (error) {
@@ -103,16 +97,48 @@ export function createMcpServer(repository: Repository): McpServer {
         output = BuildComponentWorkflowOutputSchema.parse({ run_id: runId, status: "failed" });
       }
 
-      repository.insertToolCall({
-        run_id: runId,
-        step_id: "workflow-summary",
-        tool_name: "build_component_workflow",
-        input_redacted: JSON.stringify(redactSensitive(input)),
-        output_redacted: JSON.stringify(redactSensitive(output)),
-        created_at: new Date().toISOString(),
-      });
-
+      repository.insertToolCall({ run_id: runId, step_id: "workflow-summary", tool_name: "build_component_workflow", input_redacted: JSON.stringify(redactSensitive(input)), output_redacted: JSON.stringify(redactSensitive(output)), created_at: new Date().toISOString() });
       log("info", "build component workflow executed", { request_id: reqId, run_id: runId, status: output.status });
+      return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
+    },
+  );
+
+  server.tool(
+    "replay_run",
+    "Best-effort replay using same workflow and initial redacted inputs.",
+    { run_id: ReplayRunInputSchema.shape.run_id },
+    async (rawInput) => {
+      const input = ReplayRunInputSchema.parse(rawInput);
+      const source = repository.getRun(input.run_id);
+      if (!source) {
+        return { content: [{ type: "text", text: JSON.stringify({ error: "run_not_found" }) }], structuredContent: { error: "run_not_found" }, isError: true };
+      }
+
+      const replayRunId = randomUUID();
+      const createdAt = new Date().toISOString();
+      repository.insertRun({ run_id: replayRunId, workflow_id: source.workflow_id, status: "queued", created_at: createdAt, started_at: null, finished_at: null, error: null });
+      repository.insertAudit(replayRunId, "replay_of", JSON.stringify({ source_run_id: source.run_id }));
+
+      let status: "completed" | "failed" = "failed";
+      try {
+        repository.updateRunStatus(replayRunId, "running");
+        if (source.workflow_id === "build_component_workflow") {
+          const priorInputRaw = repository.getLatestAuditValue(source.run_id, "workflow_input");
+          const priorInput = priorInputRaw ? (JSON.parse(priorInputRaw) as Record<string, unknown>) : {};
+          const componentName = typeof priorInput.component_name === "string" ? priorInput.component_name : "replay-component";
+          const workflowFile = path.resolve(process.cwd(), "workflows/sample/build_component_workflow.json");
+          const result = await executeWorkflowFile(repository, replayRunId, workflowFile, { component_name: componentName });
+          repository.insertAudit(replayRunId, "workflow_hash", JSON.stringify({ workflow_hash: result.workflow_hash }));
+          repository.updateRunStatus(replayRunId, "completed");
+          status = "completed";
+        } else {
+          throw new Error("replay not supported for this workflow_id yet");
+        }
+      } catch (error) {
+        repository.updateRunStatus(replayRunId, "failed", error instanceof Error ? error.message : String(error));
+      }
+
+      const output = ReplayRunOutputSchema.parse({ source_run_id: source.run_id, replay_run_id: replayRunId, status });
       return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
     },
   );
@@ -130,7 +156,7 @@ export function createMcpServer(repository: Repository): McpServer {
         return { content: [{ type: "text", text: JSON.stringify({ error: "run_not_found" }) }], structuredContent: { error: "run_not_found" }, isError: true };
       }
 
-      const trace = RunTraceSchema.parse({ ...run, steps: repository.getSteps(input.run_id), tool_calls: repository.getToolCalls(input.run_id), artifacts: repository.getArtifacts(input.run_id) });
+      const trace = RunTraceSchema.parse({ ...run, steps: repository.getSteps(input.run_id), tool_calls: repository.getToolCalls(input.run_id), artifacts: repository.getArtifacts(input.run_id), audit: repository.getAudit(input.run_id) });
       repository.insertToolCall({ run_id: input.run_id, step_id: "trace", tool_name: "get_run_trace", input_redacted: JSON.stringify(redactSensitive(input)), output_redacted: JSON.stringify({ run_id: trace.run_id, status: trace.status }), created_at: new Date().toISOString() });
       log("info", "run trace fetched", { request_id: reqId, tool: "get_run_trace", run_id: input.run_id });
       return { content: [{ type: "text", text: JSON.stringify(trace) }], structuredContent: trace };

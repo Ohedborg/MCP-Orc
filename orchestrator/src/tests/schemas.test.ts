@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   BuildComponentWorkflowInputSchema,
   GetRunTraceInputSchema,
+  ReplayRunInputSchema,
   RunWorkflowInputSchema,
   StepBridgeParamsSchema,
 } from "../mcp/schemas.js";
@@ -19,6 +20,11 @@ test("run_workflow input schema validates expected payload", () => {
 test("build_component_workflow input validates", () => {
   const parsed = BuildComponentWorkflowInputSchema.parse({ component_name: "auth-button" });
   assert.equal(parsed.component_name, "auth-button");
+});
+
+test("replay_run input validates", () => {
+  const parsed = ReplayRunInputSchema.parse({ run_id: "11111111-1111-4111-8111-111111111111" });
+  assert.equal(parsed.run_id.length, 36);
 });
 
 test("get_run_trace rejects non-uuid", () => {

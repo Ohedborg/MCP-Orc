@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Repository } from "../db/repository.js";
 import { createRun, invokeTool } from "../runner-client/client.js";
@@ -22,6 +23,7 @@ const WorkflowSchema = z.object({
 });
 
 export interface WorkflowExecutionResult {
+  workflow_hash: string;
   artifacts: Record<string, unknown>;
   final_output: Record<string, unknown>;
 }
@@ -33,9 +35,13 @@ export async function executeWorkflowFile(
   initialInputs: Record<string, unknown>,
 ): Promise<WorkflowExecutionResult> {
   const raw = fs.readFileSync(workflowFile, "utf-8");
+  const workflowHash = createHash("sha256").update(raw).digest("hex");
   const workflow = WorkflowSchema.parse(JSON.parse(raw));
   const workflowDir = path.dirname(workflowFile);
   const globalGuidance = fs.readFileSync(path.join(workflowDir, workflow.global_guidance), "utf-8");
+
+  repository.insertAudit(runId, "workflow_hash", JSON.stringify({ workflow_hash: workflowHash }));
+  repository.insertAudit(runId, "workflow_input", JSON.stringify(redactSensitive(initialInputs)));
 
   const artifacts: Record<string, unknown> = { ...initialInputs };
 
@@ -52,6 +58,18 @@ export async function executeWorkflowFile(
       allowed_tools: step.allowed_tools,
       network_policy_profile: "deny-all",
     });
+
+    repository.insertAudit(
+      runId,
+      "step_execution",
+      JSON.stringify(
+        redactSensitive({
+          step_id: step.id,
+          image_digest: run.image_digest,
+          policy_evidence: run.policy_evidence,
+        }),
+      ),
+    );
 
     const response = await invokeTool(run.run_id, step.tool_name, safeInputs);
     const safeOutput = OutputSchema.parse(response.output);
@@ -71,7 +89,7 @@ export async function executeWorkflowFile(
     }
   }
 
-  return { artifacts, final_output: artifacts };
+  return { workflow_hash: workflowHash, artifacts, final_output: artifacts };
 }
 
 const OutputSchema = z.record(z.unknown());

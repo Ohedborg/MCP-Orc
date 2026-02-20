@@ -24,6 +24,16 @@ export const BuildComponentWorkflowOutputSchema = z.object({
   final_output: z.record(z.unknown()).optional(),
 });
 
+export const ReplayRunInputSchema = z.object({
+  run_id: z.string().uuid(),
+});
+
+export const ReplayRunOutputSchema = z.object({
+  source_run_id: z.string().uuid(),
+  replay_run_id: z.string().uuid(),
+  status: z.enum(["completed", "failed"]),
+});
+
 export const RunWorkflowInputSchema = z.object({
   workflow_id: z.string().min(1),
   params: z.record(z.unknown()),
@@ -49,4 +59,5 @@ export const RunTraceSchema = z.object({
   steps: z.array(z.record(z.unknown())),
   tool_calls: z.array(z.record(z.unknown())),
   artifacts: z.array(z.record(z.unknown())).optional(),
+  audit: z.array(z.record(z.unknown())).optional(),
 });

@@ -35,37 +35,35 @@ export class Repository {
 
   insertStep(runId: string, stepId: string, status: string): void {
     this.db
-      .prepare(
-        `INSERT INTO steps (run_id, step_id, status, created_at)
-         VALUES (?, ?, ?, ?)`,
-      )
+      .prepare(`INSERT INTO steps (run_id, step_id, status, created_at) VALUES (?, ?, ?, ?)`) 
       .run(runId, stepId, status, new Date().toISOString());
   }
 
   insertToolCall(record: ToolCallRecord): void {
     this.db
-      .prepare(
-        `INSERT INTO tool_calls (run_id, step_id, tool_name, input_redacted, output_redacted, created_at)
-         VALUES (@run_id, @step_id, @tool_name, @input_redacted, @output_redacted, @created_at)`,
-      )
+      .prepare(`INSERT INTO tool_calls (run_id, step_id, tool_name, input_redacted, output_redacted, created_at)
+         VALUES (@run_id, @step_id, @tool_name, @input_redacted, @output_redacted, @created_at)`) 
       .run(record);
   }
 
   insertArtifact(runId: string, stepId: string, artifactName: string, redactedValue: string): void {
     this.db
-      .prepare(
-        `INSERT INTO artifacts (run_id, step_id, artifact_name, artifact_value_redacted, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
+      .prepare(`INSERT INTO artifacts (run_id, step_id, artifact_name, artifact_value_redacted, created_at)
+         VALUES (?, ?, ?, ?, ?)`) 
       .run(runId, stepId, artifactName, redactedValue, new Date().toISOString());
+  }
+
+  insertAudit(runId: string, eventKey: string, redactedValue: string): void {
+    this.db
+      .prepare(`INSERT INTO run_audit (run_id, event_key, event_value_redacted, created_at) VALUES (?, ?, ?, ?)`) 
+      .run(runId, eventKey, redactedValue, new Date().toISOString());
   }
 
   updateRunStatus(runId: string, status: RunStatus, error: string | null = null): void {
     const now = new Date().toISOString();
     this.db
       .prepare(
-        `UPDATE runs
-         SET status = ?,
+        `UPDATE runs SET status = ?,
              started_at = COALESCE(started_at, CASE WHEN ? = 'running' THEN ? ELSE started_at END),
              finished_at = CASE WHEN ? IN ('completed','failed') THEN ? ELSE finished_at END,
              error = ?
@@ -83,14 +81,21 @@ export class Repository {
   }
 
   getToolCalls(runId: string): Array<Record<string, unknown>> {
-    return this.db
-      .prepare(`SELECT step_id, tool_name, input_redacted, output_redacted, created_at FROM tool_calls WHERE run_id = ? ORDER BY id`)
-      .all(runId) as Array<Record<string, unknown>>;
+    return this.db.prepare(`SELECT step_id, tool_name, input_redacted, output_redacted, created_at FROM tool_calls WHERE run_id = ? ORDER BY id`).all(runId) as Array<Record<string, unknown>>;
   }
 
   getArtifacts(runId: string): Array<Record<string, unknown>> {
-    return this.db
-      .prepare(`SELECT step_id, artifact_name, artifact_value_redacted, created_at FROM artifacts WHERE run_id = ? ORDER BY id`)
-      .all(runId) as Array<Record<string, unknown>>;
+    return this.db.prepare(`SELECT step_id, artifact_name, artifact_value_redacted, created_at FROM artifacts WHERE run_id = ? ORDER BY id`).all(runId) as Array<Record<string, unknown>>;
+  }
+
+  getAudit(runId: string): Array<Record<string, unknown>> {
+    return this.db.prepare(`SELECT event_key, event_value_redacted, created_at FROM run_audit WHERE run_id = ? ORDER BY id`).all(runId) as Array<Record<string, unknown>>;
+  }
+
+  getLatestAuditValue(runId: string, eventKey: string): string | null {
+    const row = this.db
+      .prepare(`SELECT event_value_redacted FROM run_audit WHERE run_id = ? AND event_key = ? ORDER BY id DESC LIMIT 1`)
+      .get(runId, eventKey) as { event_value_redacted: string } | undefined;
+    return row?.event_value_redacted ?? null;
   }
 }

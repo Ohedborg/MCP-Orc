@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP-Orc Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>MCP-Orc Local Console</h1>
+      <p class="subtitle">Front end for local Runner interaction and security-debug visibility.</p>
+
+      <section class="card">
+        <h2>Create Run</h2>
+        <form id="create-run-form">
+          <label>Image ref <input name="image_ref" value="cgr.dev/chainguard/curl:latest" required /></label>
+          <label>Allowed tools (comma-separated) <input name="allowed_tools" value="echo" /></label>
+          <label>Tool name to invoke <input name="tool_name" value="echo" /></label>
+          <label>Tool input JSON
+            <textarea name="tool_input" rows="4">{"value":"hello from frontend"}</textarea>
+          </label>
+          <button type="submit">Create + Invoke</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Run Status</h2>
+        <div id="run-status">No run yet.</div>
+      </section>
+
+      <section class="card">
+        <h2>Response</h2>
+        <pre id="response">-</pre>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

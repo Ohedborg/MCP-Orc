@@ -176,22 +176,7 @@ function createRpcReader(stream, onMessage) {
       }
     }
 
-    // fallback: json-lines (some non-compliant implementations)
-    const asText = buffer.toString('utf8');
-    if (asText.includes('\n')) {
-      const lines = asText.split('\n');
-      buffer = Buffer.from(lines.pop() || '', 'utf8');
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('{')) continue;
-        try {
-          onMessage(JSON.parse(trimmed));
-        } catch {
-          // ignore
-        }
-      }
-    }
-  });
+      });
 }
 
 function normalizeCommand(command, args) {
@@ -228,9 +213,17 @@ async function discoverToolsViaStdio(commandConfig) {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+
     const timeout = setTimeout(() => {
       proc.kill('SIGKILL');
-      resolve({ ok: false, tools: [], error: 'Timeout talking to stdio MCP server.', transport: 'stdio' });
+      finish({ ok: false, tools: [], error: 'Timeout talking to stdio MCP server.', transport: 'stdio' });
     }, 18000);
 
     let stderrOutput = '';
@@ -258,8 +251,13 @@ async function discoverToolsViaStdio(commandConfig) {
       });
 
     proc.on('error', (error) => {
-      clearTimeout(timeout);
-      resolve({ ok: false, tools: [], error: `Failed to start stdio MCP: ${error.message}`, transport: 'stdio' });
+      finish({ ok: false, tools: [], error: `Failed to start stdio MCP: ${error.message}`, transport: 'stdio' });
+    });
+
+    proc.on('exit', (code) => {
+      if (settled) return;
+      const err = stderrOutput || `stdio MCP process exited before discovery (code=${code ?? 'unknown'}).`;
+      finish({ ok: false, tools: [], error: err, transport: 'stdio' });
     });
 
     (async () => {
@@ -272,8 +270,7 @@ async function discoverToolsViaStdio(commandConfig) {
 
         if (init.error) {
           proc.kill('SIGKILL');
-          clearTimeout(timeout);
-          resolve({ ok: false, tools: [], error: `Initialize failed: ${init.error.message || 'unknown error'}`, transport: 'stdio' });
+          finish({ ok: false, tools: [], error: `Initialize failed: ${init.error.message || 'unknown error'}`, transport: 'stdio' });
           return;
         }
 
@@ -282,18 +279,16 @@ async function discoverToolsViaStdio(commandConfig) {
         const tools = normalizeTools(toolsResp);
 
         proc.kill('SIGKILL');
-        clearTimeout(timeout);
 
         if (!tools.length) {
-          resolve({ ok: false, tools: [], error: stderrOutput || 'No tools returned from stdio MCP server.', transport: 'stdio' });
+          finish({ ok: false, tools: [], error: stderrOutput || 'No tools returned from stdio MCP server.', transport: 'stdio' });
           return;
         }
 
-        resolve({ ok: true, tools, transport: 'stdio' });
+        finish({ ok: true, tools, transport: 'stdio' });
       } catch (error) {
         proc.kill('SIGKILL');
-        clearTimeout(timeout);
-        resolve({ ok: false, tools: [], error: String(error.message || error), transport: 'stdio' });
+        finish({ ok: false, tools: [], error: String(error.message || error), transport: 'stdio' });
       }
     })();
   });

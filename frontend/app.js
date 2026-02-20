@@ -11,6 +11,7 @@ const serverModal = document.getElementById('server-modal');
 const nodeModal = document.getElementById('node-modal');
 
 const openServerModalBtn = document.getElementById('open-server-modal');
+const loadTestServerBtn = document.getElementById('load-test-server');
 const addTriggerBtn = document.getElementById('add-trigger');
 const addAfterTriggerBtn = document.getElementById('add-after-trigger');
 
@@ -58,6 +59,32 @@ addNodeBtn.addEventListener('click', addNode);
 
 loadJsonBtn.addEventListener('click', loadFromJson);
 saveJsonBtn.addEventListener('click', saveToJson);
+loadTestServerBtn.addEventListener('click', loadBuiltInTestServer);
+
+
+function loadBuiltInTestServer() {
+  const server = {
+    id: crypto.randomUUID(),
+    name: 'mock-local-mcp',
+    url: '',
+    command: 'node',
+    args: ['mock-mcp-server.js'],
+    env: {},
+    auth: { type: 'none', details: {} },
+    toolHints: ['mock.search', 'mock.read', 'mock.summarize'],
+    tools: [],
+    connected: false,
+    enabled: true,
+    transport: 'stdio',
+    status: 'unverified',
+    lastError: '',
+  };
+
+  upsertServer(server);
+  persist();
+  renderAll();
+  outputEl.textContent = 'Loaded built-in test MCP server. Click Re-verify to discover tools.';
+}
 
 function renderAll() {
   renderServers();

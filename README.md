@@ -33,3 +33,8 @@ This starts:
 3. OAuth now starts with a single "Start OAuth" action (no manual OAuth client fields).
 4. Tools become selectable only after connection verification, matching MCP settings behavior.
 5. Edit/import/export `mcp.json` and build a chain that passes compressed context between nodes.
+
+
+## Quick MCP client verification
+- In the frontend settings panel, click **Load Test MCP** then **Re-verify** to test a known local stdio MCP server (`frontend/mock-mcp-server.js`).
+- This validates the MCP client lifecycle (`initialize -> initialized notification -> tools/list`) end-to-end without external dependencies.

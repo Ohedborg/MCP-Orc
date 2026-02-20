@@ -33,5 +33,15 @@ export function applySchema(db: Database.Database): void {
       created_at TEXT NOT NULL,
       FOREIGN KEY(run_id) REFERENCES runs(run_id)
     );
+
+    CREATE TABLE IF NOT EXISTS artifacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      artifact_name TEXT NOT NULL,
+      artifact_value_redacted TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES runs(run_id)
+    );
   `);
 }

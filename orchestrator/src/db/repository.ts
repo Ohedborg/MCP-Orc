@@ -51,6 +51,14 @@ export class Repository {
       .run(record);
   }
 
+  insertArtifact(runId: string, stepId: string, artifactName: string, redactedValue: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO artifacts (run_id, step_id, artifact_name, artifact_value_redacted, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(runId, stepId, artifactName, redactedValue, new Date().toISOString());
+  }
 
   updateRunStatus(runId: string, status: RunStatus, error: string | null = null): void {
     const now = new Date().toISOString();
@@ -77,6 +85,12 @@ export class Repository {
   getToolCalls(runId: string): Array<Record<string, unknown>> {
     return this.db
       .prepare(`SELECT step_id, tool_name, input_redacted, output_redacted, created_at FROM tool_calls WHERE run_id = ? ORDER BY id`)
+      .all(runId) as Array<Record<string, unknown>>;
+  }
+
+  getArtifacts(runId: string): Array<Record<string, unknown>> {
+    return this.db
+      .prepare(`SELECT step_id, artifact_name, artifact_value_redacted, created_at FROM artifacts WHERE run_id = ? ORDER BY id`)
       .all(runId) as Array<Record<string, unknown>>;
   }
 }

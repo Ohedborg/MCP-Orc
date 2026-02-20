@@ -1,26 +1,27 @@
-# Orchestrator (Chunk 5 skeleton)
+# Orchestrator (Chunk 6)
 
 TypeScript/Node MCP server using MCP TS SDK with stdio transport.
 
-## Implemented
-- MCP tools:
-  - `run_workflow`
-  - `get_run_trace`
-- `run_workflow` now performs a minimal bridged execution flow:
-  1. Validate params for a single-step tool call.
-  2. Create a runner sandbox run.
-  3. Invoke one downstream tool through runner proxy.
-  4. Persist redacted trace data.
-- Zod validation for tool schemas.
-- Structured JSON logging with request IDs.
-- SQLite persistence for `runs`, `steps`, `tool_calls`.
+## Implemented tools
+- `run_workflow` (single-step bridge)
+- `build_component_workflow` (deterministic multi-step composed workflow)
+- `get_run_trace`
 
-## Bridge params expected in `run_workflow.params`
-- `image_ref`
-- `allowed_tools` (array)
-- `tool_name`
-- `tool_input` (object)
-- optional `command`, `args`, `cpu`, `memory`, `timeout_seconds`, `network_policy_profile`, `downstream_port`
+## Chunk 6 additions
+- Workflow spec file support (JSON) with linear `steps`.
+- Guidance layering:
+  - global guidance file
+  - per-step guidance file
+- Artifact passing between steps via templated inputs (`{{artifact_name}}`).
+- Prompt-injection hardening:
+  - reject command-like fields in step tool inputs
+  - never execute commands from tool output
+  - schema-validate downstream output before artifact use
+- Artifacts persisted in SQLite (`artifacts` table) and included in `get_run_trace`.
+
+## Sample workflow
+- `workflows/sample/build_component_workflow.json`
+- guidance files under `workflows/sample/guidance/`
 
 ## Run locally
 ```bash

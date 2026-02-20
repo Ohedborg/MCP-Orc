@@ -14,6 +14,16 @@ export const StepBridgeParamsSchema = z.object({
   downstream_port: z.number().int().positive().max(65535).default(8080),
 });
 
+export const BuildComponentWorkflowInputSchema = z.object({
+  component_name: z.string().min(1),
+});
+
+export const BuildComponentWorkflowOutputSchema = z.object({
+  run_id: z.string().uuid(),
+  status: z.enum(["queued", "running", "completed", "failed"]),
+  final_output: z.record(z.unknown()).optional(),
+});
+
 export const RunWorkflowInputSchema = z.object({
   workflow_id: z.string().min(1),
   params: z.record(z.unknown()),
@@ -38,4 +48,5 @@ export const RunTraceSchema = z.object({
   error: z.string().nullable(),
   steps: z.array(z.record(z.unknown())),
   tool_calls: z.array(z.record(z.unknown())),
+  artifacts: z.array(z.record(z.unknown())).optional(),
 });

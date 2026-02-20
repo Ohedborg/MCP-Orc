@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GetRunTraceInputSchema, RunWorkflowInputSchema, StepBridgeParamsSchema } from "../mcp/schemas.js";
+import {
+  BuildComponentWorkflowInputSchema,
+  GetRunTraceInputSchema,
+  RunWorkflowInputSchema,
+  StepBridgeParamsSchema,
+} from "../mcp/schemas.js";
 
 test("run_workflow input schema validates expected payload", () => {
   const parsed = RunWorkflowInputSchema.parse({
@@ -9,6 +14,11 @@ test("run_workflow input schema validates expected payload", () => {
   });
 
   assert.equal(parsed.workflow_id, "wf-1");
+});
+
+test("build_component_workflow input validates", () => {
+  const parsed = BuildComponentWorkflowInputSchema.parse({ component_name: "auth-button" });
+  assert.equal(parsed.component_name, "auth-button");
 });
 
 test("get_run_trace rejects non-uuid", () => {

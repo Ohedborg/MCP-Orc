@@ -1,540 +1,359 @@
-const STORAGE_KEY = 'mcp_orc_builder_v4';
-const NODE_SPACING = 300;
+const STORAGE_KEY = 'mcp_orc_builder_v5';
 
 const state = loadState();
 
-const canvasEl = document.getElementById('canvas');
-const nodeCountEl = document.getElementById('node-count');
-const savedServersEl = document.getElementById('saved-servers');
 const outputEl = document.getElementById('output');
+const serverListEl = document.getElementById('server-list');
+const mcpJsonEl = document.getElementById('mcp-json');
+const flowTrackEl = document.getElementById('flow-track');
 
-const modal = document.getElementById('node-modal');
-const openNodeModalBtn = document.getElementById('open-node-modal');
-const tabNewBtn = document.getElementById('tab-new');
-const tabSavedBtn = document.getElementById('tab-saved');
-const newServerPane = document.getElementById('new-server-pane');
-const savedServerPane = document.getElementById('saved-server-pane');
+const serverModal = document.getElementById('server-modal');
+const nodeModal = document.getElementById('node-modal');
 
-const authTypeEl = document.getElementById('auth-type');
-const authFieldsEl = document.getElementById('auth-fields');
-const savedPickerEl = document.getElementById('saved-picker');
+const openServerModalBtn = document.getElementById('open-server-modal');
+const addTriggerBtn = document.getElementById('add-trigger');
+const addAfterTriggerBtn = document.getElementById('add-after-trigger');
 
 const serverNameEl = document.getElementById('server-name');
 const serverUrlEl = document.getElementById('server-url');
-const toolCatalogEl = document.getElementById('tool-catalog');
-const guidelineEl = document.getElementById('guideline');
+const authTypeEl = document.getElementById('auth-type');
+const authFieldsEl = document.getElementById('auth-fields');
+const toolHintsEl = document.getElementById('tool-hints');
+const connStatusEl = document.getElementById('conn-status');
 
+const verifyConnectionBtn = document.getElementById('verify-connection');
+const startOauthBtn = document.getElementById('start-oauth');
+const saveServerBtn = document.getElementById('save-server');
+
+const nodeServerEl = document.getElementById('node-server');
 const nodeIdEl = document.getElementById('node-id');
 const nodeToolsEl = document.getElementById('node-tools');
 const contextModeEl = document.getElementById('context-mode');
-const contextBudgetEl = document.getElementById('context-budget');
-const keyFieldsEl = document.getElementById('key-fields');
-const inputTemplateEl = document.getElementById('input-template');
+const tokenBudgetEl = document.getElementById('token-budget');
+const addNodeBtn = document.getElementById('add-node');
 
-const connectServerBtn = document.getElementById('connect-server');
-const saveNodeBtn = document.getElementById('save-node');
-const simulateBtn = document.getElementById('simulate-flow');
-const exportBtn = document.getElementById('export-flow');
+const loadJsonBtn = document.getElementById('load-json');
+const saveJsonBtn = document.getElementById('save-json');
 
-let modalMode = 'new';
-let selectedSavedServerId = null;
-let activeServerDraft = null;
+let connectedDraft = null;
 
 renderAuthFields();
 renderAll();
 
-openNodeModalBtn.addEventListener('click', () => openModal());
-tabNewBtn.addEventListener('click', () => switchModalTab('new'));
-tabSavedBtn.addEventListener('click', () => switchModalTab('saved'));
+openServerModalBtn.addEventListener('click', () => {
+  resetServerModal();
+  serverModal.showModal();
+});
+
+addTriggerBtn.addEventListener('click', () => openNodePicker());
+addAfterTriggerBtn.addEventListener('click', () => openNodePicker());
+
 authTypeEl.addEventListener('change', renderAuthFields);
-connectServerBtn.addEventListener('click', connectServer);
-saveNodeBtn.addEventListener('click', saveNodeToCanvas);
-simulateBtn.addEventListener('click', simulateFlow);
-exportBtn.addEventListener('click', exportFlow);
+verifyConnectionBtn.addEventListener('click', () => verifyConnection('manual'));
+startOauthBtn.addEventListener('click', () => verifyConnection('oauth'));
+saveServerBtn.addEventListener('click', saveServer);
 
-function openModal() {
-  activeServerDraft = null;
-  selectedSavedServerId = state.savedServers[0]?.id || null;
-  switchModalTab(state.savedServers.length ? 'saved' : 'new');
-  renderSavedPicker();
-  hydrateTools([]);
-  modal.showModal();
-}
+nodeServerEl.addEventListener('change', () => fillToolOptions(nodeServerEl.value));
+addNodeBtn.addEventListener('click', addNode);
 
-function switchModalTab(mode) {
-  modalMode = mode;
-  const isNew = mode === 'new';
+loadJsonBtn.addEventListener('click', loadFromJson);
+saveJsonBtn.addEventListener('click', saveToJson);
 
-  tabNewBtn.classList.toggle('active', isNew);
-  tabSavedBtn.classList.toggle('active', !isNew);
-  newServerPane.classList.toggle('active', isNew);
-  savedServerPane.classList.toggle('active', !isNew);
-
-  if (!isNew) {
-    renderSavedPicker();
-    const server = getSelectedSavedServer();
-    hydrateTools(server?.tools || []);
-  }
+function renderAll() {
+  renderServers();
+  renderFlow();
+  saveToJson();
 }
 
 function renderAuthFields() {
-  const authType = authTypeEl.value;
-  let html = '';
-
-  if (authType === 'api_key') {
-    html = `
-      <label>API key name <input data-auth="api_key_name" placeholder="x-api-key" /></label>
-      <label>API key value <input data-auth="api_key_value" type="password" placeholder="••••••••" /></label>
-      <label>Placement
-        <select data-auth="api_key_location">
-          <option value="header">Header</option>
-          <option value="query">Query</option>
-        </select>
-      </label>
-    `;
-  } else if (authType === 'oauth') {
-    html = `
-      <label>Client ID <input data-auth="client_id" placeholder="oauth-client-id" /></label>
-      <label>Client secret <input data-auth="client_secret" type="password" placeholder="••••••••" /></label>
-      <label>Authorize URL <input data-auth="authorize_url" placeholder="https://.../authorize" /></label>
-      <label>Token URL <input data-auth="token_url" placeholder="https://.../token" /></label>
-      <label>Scopes <input data-auth="scopes" placeholder="files:read files:write" /></label>
-    `;
-  } else if (authType === 'bearer') {
-    html = '<label>Bearer token <input data-auth="token" type="password" placeholder="••••••••" /></label>';
-  } else if (authType === 'basic') {
-    html = `
-      <label>Username <input data-auth="username" placeholder="service-user" /></label>
-      <label>Password <input data-auth="password" type="password" placeholder="••••••••" /></label>
-    `;
-  } else {
-    html = '<p class="hint">No authentication configured.</p>';
+  const auth = authTypeEl.value;
+  if (auth === 'api_key') {
+    authFieldsEl.innerHTML = '<label>API Key <input id="auth-api-key" type="password" placeholder="••••••" /></label>';
+    return;
   }
-
-  authFieldsEl.innerHTML = html;
+  if (auth === 'bearer') {
+    authFieldsEl.innerHTML = '<label>Bearer Token <input id="auth-bearer" type="password" placeholder="••••••" /></label>';
+    return;
+  }
+  if (auth === 'oauth') {
+    authFieldsEl.innerHTML = '<p class="muted">OAuth is initiated with the button below (no manual client details required).</p>';
+    return;
+  }
+  authFieldsEl.innerHTML = '<p class="muted">No authentication needed.</p>';
 }
 
-function connectServer() {
-  const server = modalMode === 'new' ? buildServerFromForm() : getSelectedSavedServer();
-  if (!server) {
-    outputEl.textContent = 'Select a saved MCP server or fill new server details first.';
+function verifyConnection(mode) {
+  const server = buildServerDraft();
+  if (!server.name || !server.url) {
+    outputEl.textContent = 'Server requires name + URL before verification.';
     return;
   }
 
-  if (!server.name || !server.base_url) {
-    outputEl.textContent = 'Server requires name + base URL.';
+  if (server.auth.type === 'oauth' && mode !== 'oauth') {
+    outputEl.textContent = 'For OAuth servers use “Start OAuth”.';
     return;
   }
 
-  const tools = server.tools.length ? server.tools : ['list_tools'];
-  activeServerDraft = {
+  const tools = discoverTools(server);
+  connectedDraft = {
     ...server,
     connected: true,
+    enabled: true,
     tools,
+    verifiedAt: new Date().toISOString(),
   };
 
-  hydrateTools(tools);
-  outputEl.textContent = `Connected to ${server.name}. Loaded ${tools.length} tool(s).`;
+  connStatusEl.textContent = `Connected. ${tools.length} tools discovered.`;
+  outputEl.textContent = `Verified ${server.name}. Tools available only after connection check.`;
 }
 
-function saveNodeToCanvas() {
-  if (!activeServerDraft) {
-    outputEl.textContent = 'Connect a server first to load tools.';
+function saveServer() {
+  if (!connectedDraft) {
+    outputEl.textContent = 'Verify connection first. Tools are loaded only after verification.';
     return;
   }
 
-  const nodeId = nodeIdEl.value.trim();
-  if (!nodeId) {
-    outputEl.textContent = 'Node id is required.';
-    return;
-  }
-
-  if (state.nodes.some((node) => node.id === nodeId)) {
-    outputEl.textContent = `Node id "${nodeId}" already exists.`;
-    return;
-  }
-
-  const selectedTools = Array.from(nodeToolsEl.selectedOptions).map((option) => option.value);
-  if (!selectedTools.length) {
-    outputEl.textContent = 'Select at least one tool for this node.';
-    return;
-  }
-
-  const inputTemplate = inputTemplateEl.value.trim();
-  try {
-    JSON.parse(inputTemplate);
-  } catch {
-    outputEl.textContent = 'Input template must be valid JSON.';
-    return;
-  }
-
-  const node = {
-    id: nodeId,
-    server_id: activeServerDraft.id,
-    server_name: activeServerDraft.name,
-    server_url: activeServerDraft.base_url,
-    auth: activeServerDraft.auth,
-    selected_tools: selectedTools,
-    context_policy: {
-      mode: contextModeEl.value,
-      max_tokens: Number(contextBudgetEl.value || 2048),
-      key_fields: splitCsv(keyFieldsEl.value),
-    },
-    input_template: inputTemplate,
-  };
-
-  state.nodes.push(node);
-  upsertSavedServer(activeServerDraft);
+  upsertServer(connectedDraft);
   persist();
   renderAll();
-  modal.close();
+  serverModal.close();
 }
 
-function simulateFlow() {
-  if (!state.nodes.length) {
-    outputEl.textContent = 'Add at least one node to simulate.';
-    return;
-  }
+function buildServerDraft() {
+  const authType = authTypeEl.value;
+  const authDetails = {};
 
-  let previous = {
-    summary: 'Initial user prompt summary',
-    key_fields: { intent: 'build ui component' },
-    chunks: [],
-  };
-
-  const trace = state.nodes.map((node, index) => {
-    const renderedInput = JSON.parse(
-      node.input_template
-        .replaceAll('{{user.prompt}}', '"Build dashboard from figma"')
-        .replaceAll('{{previous.summary}}', JSON.stringify(previous.summary)),
-    );
-
-    const simulatedPayload = {
-      raw_size_chars: 24000 + index * 12000,
-      summary: `Summary from ${node.server_name}`,
-      key_fields: {
-        server: node.server_name,
-        primary_tool: node.selected_tools[0],
-      },
-      chunks: [`ctx-${node.id}-001`, `ctx-${node.id}-002`],
-    };
-
-    previous = applyContextPolicy(simulatedPayload, node.context_policy);
-
-    return {
-      node_id: node.id,
-      server: node.server_name,
-      selected_tools: node.selected_tools,
-      input: renderedInput,
-      context_policy: node.context_policy,
-      output_context_packet: previous,
-    };
-  });
-
-  outputEl.textContent = JSON.stringify(
-    {
-      simulation: trace,
-      note: 'Context is compressed per-node policy to avoid overwhelming downstream context windows.',
-    },
-    null,
-    2,
-  );
-}
-
-function exportFlow() {
-  if (!state.nodes.length) {
-    outputEl.textContent = 'Add nodes before export.';
-    return;
-  }
-
-  const config = {
-    composed_mcp: {
-      name: 'mcp-orc-composed-server',
-      generated_at: new Date().toISOString(),
-      servers: state.savedServers.map((server) => ({
-        id: server.id,
-        name: server.name,
-        base_url: server.base_url,
-        auth: redactAuth(server.auth),
-        tools: server.tools,
-        guideline_md: server.guideline || null,
-      })),
-      workflow_nodes: state.nodes.map((node, index) => ({
-        order: index + 1,
-        id: node.id,
-        server_id: node.server_id,
-        selected_tools: node.selected_tools,
-        context_policy: node.context_policy,
-        input_template: node.input_template,
-      })),
-      context_strategy: {
-        default: 'summary + key_fields + optional chunk references',
-        rationale: 'Avoid exceeding context window by compressing large MCP payloads between nodes.',
-      },
-      ide_usage: {
-        model: 'IDE connects to one MCP-Orc endpoint only.',
-        client_config_example: {
-          mcpServers: {
-            'mcp-orc': {
-              command: 'node',
-              args: ['orchestrator/dist/index.js'],
-            },
-          },
-        },
-      },
-    },
-  };
-
-  outputEl.textContent = JSON.stringify(config, null, 2);
-}
-
-function renderAll() {
-  renderSavedServers();
-  renderCanvas();
-}
-
-function renderSavedServers() {
-  if (!state.savedServers.length) {
-    savedServersEl.innerHTML = '<p class="item">No saved servers yet.</p>';
-    return;
-  }
-
-  savedServersEl.innerHTML = state.savedServers
-    .map(
-      (server) => `
-      <article class="item">
-        <div class="row">
-          <h4>${escapeHtml(server.name)}</h4>
-          <button type="button" class="danger" data-remove-server="${server.id}">Delete</button>
-        </div>
-        <p><strong>URL:</strong> ${escapeHtml(server.base_url)}</p>
-        <p><strong>Auth:</strong> ${escapeHtml(server.auth.type)}</p>
-        <p><strong>Tools:</strong> ${escapeHtml(server.tools.join(', '))}</p>
-      </article>
-    `,
-    )
-    .join('');
-
-  document.querySelectorAll('[data-remove-server]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const id = button.getAttribute('data-remove-server');
-      state.savedServers = state.savedServers.filter((server) => server.id !== id);
-      state.nodes = state.nodes.filter((node) => node.server_id !== id);
-      persist();
-      renderAll();
-    });
-  });
-}
-
-function renderSavedPicker() {
-  if (!state.savedServers.length) {
-    savedPickerEl.innerHTML = '<p class="hint">No saved servers yet. Switch to Create New Server.</p>';
-    return;
-  }
-
-  savedPickerEl.innerHTML = state.savedServers
-    .map(
-      (server) => `
-      <label class="pick ${selectedSavedServerId === server.id ? 'selected' : ''}">
-        <input type="radio" name="saved-server" value="${server.id}" ${selectedSavedServerId === server.id ? 'checked' : ''} />
-        <span>
-          <strong>${escapeHtml(server.name)}</strong><br />
-          <small>${escapeHtml(server.base_url)} · ${escapeHtml(server.auth.type)}</small>
-        </span>
-      </label>
-    `,
-    )
-    .join('');
-
-  document.querySelectorAll('input[name="saved-server"]').forEach((input) => {
-    input.addEventListener('change', () => {
-      selectedSavedServerId = input.value;
-      renderSavedPicker();
-      const server = getSelectedSavedServer();
-      hydrateTools(server?.tools || []);
-    });
-  });
-}
-
-function renderCanvas() {
-  nodeCountEl.textContent = `${state.nodes.length} ${state.nodes.length === 1 ? 'node' : 'nodes'}`;
-
-  if (!state.nodes.length) {
-    canvasEl.innerHTML = '<p class="empty">No workflow nodes yet.</p>';
-    return;
-  }
-
-  const width = Math.max(1100, state.nodes.length * NODE_SPACING + 120);
-  const content = [`<div class="track" style="width:${width}px">`, '<div class="line"></div>'];
-
-  state.nodes.forEach((node, index) => {
-    const left = 20 + index * NODE_SPACING;
-
-    content.push(`
-      <article class="node" style="left:${left}px">
-        <header>
-          <h3>${index + 1}. ${escapeHtml(node.id)}</h3>
-          <span class="chip">${escapeHtml(node.context_policy.mode)}</span>
-        </header>
-        <p><strong>MCP:</strong> ${escapeHtml(node.server_name)}</p>
-        <p><strong>Tools:</strong> ${escapeHtml(node.selected_tools.join(', '))}</p>
-        <p><strong>Budget:</strong> ${node.context_policy.max_tokens} tokens</p>
-        <div class="controls">
-          <button type="button" data-move-left="${escapeHtml(node.id)}">←</button>
-          <button type="button" data-move-right="${escapeHtml(node.id)}">→</button>
-          <button type="button" class="danger" data-remove-node="${escapeHtml(node.id)}">Remove</button>
-        </div>
-      </article>
-    `);
-
-    if (index < state.nodes.length - 1) {
-      content.push(`<span class="arrow" style="left:${left + 245}px">➜</span>`);
-    }
-
-    content.push(`<button type="button" class="plus" data-insert-after="${escapeHtml(node.id)}" style="left:${left + 270}px">+</button>`);
-  });
-
-  content.push('</div>');
-  canvasEl.innerHTML = content.join('');
-
-  document.querySelectorAll('[data-remove-node]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const id = button.getAttribute('data-remove-node');
-      state.nodes = state.nodes.filter((node) => node.id !== id);
-      persist();
-      renderCanvas();
-    });
-  });
-
-  document.querySelectorAll('[data-move-left]').forEach((button) => {
-    button.addEventListener('click', () => moveNode(button.getAttribute('data-move-left'), -1));
-  });
-
-  document.querySelectorAll('[data-move-right]').forEach((button) => {
-    button.addEventListener('click', () => moveNode(button.getAttribute('data-move-right'), 1));
-  });
-
-  document.querySelectorAll('[data-insert-after]').forEach((button) => {
-    button.addEventListener('click', () => {
-      outputEl.textContent = 'Use + Add MCP Node to configure the next server and tools, then add it to canvas.';
-      openModal();
-    });
-  });
-}
-
-function moveNode(nodeId, delta) {
-  const index = state.nodes.findIndex((node) => node.id === nodeId);
-  if (index < 0) return;
-
-  const target = index + delta;
-  if (target < 0 || target >= state.nodes.length) return;
-
-  const [node] = state.nodes.splice(index, 1);
-  state.nodes.splice(target, 0, node);
-  persist();
-  renderCanvas();
-}
-
-function getSelectedSavedServer() {
-  return state.savedServers.find((server) => server.id === selectedSavedServerId) || null;
-}
-
-function buildServerFromForm() {
-  const auth = collectAuth();
+  if (authType === 'api_key') authDetails.api_key = document.getElementById('auth-api-key')?.value || '';
+  if (authType === 'bearer') authDetails.token = document.getElementById('auth-bearer')?.value || '';
+  if (authType === 'oauth') authDetails.oauth = 'initiated';
 
   return {
     id: crypto.randomUUID(),
     name: serverNameEl.value.trim(),
-    base_url: serverUrlEl.value.trim(),
-    tools: splitCsv(toolCatalogEl.value),
-    guideline: guidelineEl.value.trim(),
-    auth,
+    url: serverUrlEl.value.trim(),
+    auth: { type: authType, details: authDetails },
+    toolHints: splitCsv(toolHintsEl.value),
+    tools: [],
   };
 }
 
-function collectAuth() {
-  const type = authTypeEl.value;
-  const details = {};
+function discoverTools(server) {
+  if (server.toolHints.length) return server.toolHints;
 
-  authFieldsEl.querySelectorAll('[data-auth]').forEach((input) => {
-    const key = input.getAttribute('data-auth');
-    details[key] = input.value;
-  });
-
-  return { type, details };
+  const base = server.name.toLowerCase().replace(/\s+/g, '_') || 'mcp';
+  return [`${base}.search`, `${base}.read`, `${base}.execute`];
 }
 
-function hydrateTools(tools) {
-  nodeToolsEl.innerHTML = tools
-    .map((tool) => `<option value="${escapeHtml(tool)}">${escapeHtml(tool)}</option>`)
-    .join('');
+function upsertServer(server) {
+  const idx = state.servers.findIndex((item) => item.name === server.name && item.url === server.url);
+  if (idx >= 0) {
+    state.servers[idx] = { ...state.servers[idx], ...server };
+    return;
+  }
+  state.servers.push(server);
 }
 
-function upsertSavedServer(server) {
-  const existing = state.savedServers.findIndex((item) => item.name === server.name && item.base_url === server.base_url);
-
-  if (existing >= 0) {
-    state.savedServers[existing] = { ...state.savedServers[existing], ...server };
+function renderServers() {
+  if (!state.servers.length) {
+    serverListEl.innerHTML = '<p class="server-meta">No servers configured.</p>';
     return;
   }
 
-  state.savedServers.push(server);
+  serverListEl.innerHTML = state.servers.map((server) => `
+    <article class="server-item">
+      <div class="server-head">
+        <div>
+          <strong>${escapeHtml(server.name)}</strong>
+          <div class="server-meta">${escapeHtml(server.tools.length)} tools ${server.connected ? 'available' : 'unavailable'} · ${escapeHtml(server.auth.type)}</div>
+        </div>
+        <button class="toggle ${server.enabled ? 'on' : ''}" data-toggle="${server.id}" aria-label="toggle"></button>
+      </div>
+      <div class="server-meta">${escapeHtml(server.url)}</div>
+      <div class="server-actions">
+        <button class="ghost" data-open-node="${server.id}">Add to flow</button>
+        <button class="ghost" data-delete-server="${server.id}">Delete</button>
+      </div>
+    </article>
+  `).join('');
+
+  document.querySelectorAll('[data-toggle]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = el.getAttribute('data-toggle');
+      const server = state.servers.find((item) => item.id === id);
+      if (!server) return;
+      server.enabled = !server.enabled;
+      persist();
+      renderServers();
+    });
+  });
+
+  document.querySelectorAll('[data-delete-server]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = el.getAttribute('data-delete-server');
+      state.servers = state.servers.filter((item) => item.id !== id);
+      state.nodes = state.nodes.filter((node) => node.serverId !== id);
+      persist();
+      renderAll();
+    });
+  });
+
+  document.querySelectorAll('[data-open-node]').forEach((el) => {
+    el.addEventListener('click', () => openNodePicker(el.getAttribute('data-open-node')));
+  });
 }
 
-function applyContextPolicy(payload, policy) {
-  if (policy.mode === 'full') {
-    return {
-      summary: payload.summary,
-      key_fields: payload.key_fields,
-      chunks: payload.chunks,
-      raw_size_chars: payload.raw_size_chars,
-    };
-  }
-
-  if (policy.mode === 'key_fields') {
-    const filtered = {};
-    const allow = policy.key_fields.length ? policy.key_fields : Object.keys(payload.key_fields);
-    for (const key of allow) {
-      if (key in payload.key_fields) filtered[key] = payload.key_fields[key];
-    }
-    return {
-      summary: payload.summary,
-      key_fields: filtered,
-      chunks: [],
-      token_budget: policy.max_tokens,
-    };
-  }
-
-  if (policy.mode === 'chunked') {
-    return {
-      summary: payload.summary,
-      key_fields: payload.key_fields,
-      chunks: payload.chunks,
-      retrieval_hint: 'Load chunk references as-needed in the next node.',
-      token_budget: policy.max_tokens,
-    };
-  }
-
-  return {
-    summary: payload.summary,
-    key_fields: payload.key_fields,
-    chunks: [],
-    token_budget: policy.max_tokens,
-  };
+function openNodePicker(serverId = '') {
+  fillServerOptions(serverId);
+  fillToolOptions(nodeServerEl.value);
+  nodeModal.showModal();
 }
 
-function redactAuth(auth) {
-  return {
-    type: auth.type,
-    details: Object.fromEntries(Object.keys(auth.details || {}).map((key) => [key, '<redacted>'])),
+function fillServerOptions(selected) {
+  const available = state.servers.filter((server) => server.connected && server.enabled);
+  if (!available.length) {
+    nodeServerEl.innerHTML = '<option value="">No connected servers</option>';
+    nodeToolsEl.innerHTML = '';
+    return;
+  }
+
+  nodeServerEl.innerHTML = available.map((server) => `
+    <option value="${server.id}" ${selected === server.id ? 'selected' : ''}>${escapeHtml(server.name)}</option>
+  `).join('');
+}
+
+function fillToolOptions(serverId) {
+  const server = state.servers.find((item) => item.id === serverId);
+  if (!server || !server.connected) {
+    nodeToolsEl.innerHTML = '';
+    return;
+  }
+
+  nodeToolsEl.innerHTML = server.tools.map((tool) => `<option value="${escapeHtml(tool)}">${escapeHtml(tool)}</option>`).join('');
+}
+
+function addNode() {
+  const serverId = nodeServerEl.value;
+  const nodeId = nodeIdEl.value.trim() || `step_${state.nodes.length + 1}`;
+  const selectedTools = Array.from(nodeToolsEl.selectedOptions).map((opt) => opt.value);
+
+  if (!serverId) {
+    outputEl.textContent = 'Pick a connected server first.';
+    return;
+  }
+  if (!selectedTools.length) {
+    outputEl.textContent = 'Select at least one available tool.';
+    return;
+  }
+  if (state.nodes.some((node) => node.id === nodeId)) {
+    outputEl.textContent = `Node id ${nodeId} already exists.`;
+    return;
+  }
+
+  const server = state.servers.find((item) => item.id === serverId);
+  state.nodes.push({
+    id: nodeId,
+    serverId,
+    serverName: server?.name || 'Unknown',
+    tools: selectedTools,
+    contextMode: contextModeEl.value,
+    tokenBudget: Number(tokenBudgetEl.value || 2048),
+  });
+
+  persist();
+  renderFlow();
+  nodeModal.close();
+}
+
+function renderFlow() {
+  const existing = flowTrackEl.querySelector('.node-col');
+  if (existing) existing.remove();
+
+  if (!state.nodes.length) return;
+
+  const col = document.createElement('div');
+  col.className = 'node-col';
+
+  state.nodes.forEach((node) => {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div class="connector"></div>
+      <article class="node">
+        <h4>${escapeHtml(node.id)}</h4>
+        <p><strong>Server:</strong> ${escapeHtml(node.serverName)}</p>
+        <p><strong>Tools:</strong> ${escapeHtml(node.tools.join(', '))}</p>
+        <p><strong>Context:</strong> ${escapeHtml(node.contextMode)} · ${node.tokenBudget} tokens</p>
+      </article>
+      <button class="plus-btn" data-after-node="${escapeHtml(node.id)}">+</button>
+    `;
+    col.appendChild(wrap);
+  });
+
+  flowTrackEl.appendChild(col);
+  col.querySelectorAll('[data-after-node]').forEach((btn) => {
+    btn.addEventListener('click', () => openNodePicker());
+  });
+}
+
+function loadFromJson() {
+  try {
+    const parsed = JSON.parse(mcpJsonEl.value || '{}');
+    const servers = Object.entries(parsed.mcpServers || {}).map(([name, cfg]) => ({
+      id: crypto.randomUUID(),
+      name,
+      url: cfg.url || 'local://stdio',
+      auth: cfg.auth || { type: 'none', details: {} },
+      toolHints: cfg.tools || [],
+      tools: cfg.tools || [],
+      connected: true,
+      enabled: true,
+    }));
+
+    state.servers = servers;
+    state.nodes = [];
+    persist();
+    renderAll();
+    outputEl.textContent = `Loaded ${servers.length} servers from mcp.json.`;
+  } catch (error) {
+    outputEl.textContent = `Invalid mcp.json: ${error.message}`;
+  }
+}
+
+function saveToJson() {
+  const json = {
+    mcpServers: Object.fromEntries(
+      state.servers.map((server) => [server.name, {
+        url: server.url,
+        auth: { type: server.auth.type, details: '<redacted>' },
+        tools: server.tools,
+        enabled: server.enabled,
+      }]),
+    ),
+    workflow: state.nodes.map((node, i) => ({
+      order: i + 1,
+      id: node.id,
+      server: node.serverName,
+      tools: node.tools,
+      contextMode: node.contextMode,
+      tokenBudget: node.tokenBudget,
+    })),
+    contextPolicy: 'Pass summary/key fields/chunk references to avoid context window overload.',
   };
+
+  mcpJsonEl.value = JSON.stringify(json, null, 2);
+}
+
+function resetServerModal() {
+  connectedDraft = null;
+  serverNameEl.value = '';
+  serverUrlEl.value = '';
+  authTypeEl.value = 'none';
+  toolHintsEl.value = '';
+  connStatusEl.textContent = 'Not connected.';
+  renderAuthFields();
 }
 
 function splitCsv(value) {
-  return String(value || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return String(value || '').split(',').map((v) => v.trim()).filter(Boolean);
 }
 
 function persist() {
@@ -543,16 +362,15 @@ function persist() {
 
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return { savedServers: [], nodes: [] };
-
+  if (!raw) return { servers: [], nodes: [] };
   try {
     const parsed = JSON.parse(raw);
     return {
-      savedServers: Array.isArray(parsed.savedServers) ? parsed.savedServers : [],
+      servers: Array.isArray(parsed.servers) ? parsed.servers : [],
       nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
     };
   } catch {
-    return { savedServers: [], nodes: [] };
+    return { servers: [], nodes: [] };
   }
 }
 

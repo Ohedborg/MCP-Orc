@@ -3,116 +3,104 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MCP-Orc Agent Workflow Builder</title>
+    <title>MCP-Orc Canvas Builder</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>MCP-Orc Agent Workflow Builder</h1>
-        <p>Build node-based MCP workflows. Add servers from canvas, authenticate, pick tools, and control context handoff between steps.</p>
-      </div>
-      <button id="open-node-modal" class="primary">+ Add MCP Node</button>
-    </header>
+    <main class="app">
+      <aside class="settings">
+        <header>
+          <h2>MCP Settings</h2>
+          <p>Cursor-style saved MCP servers and tools.</p>
+        </header>
 
-    <main class="workspace">
-      <section class="canvas-card">
-        <div class="canvas-toolbar">
-          <strong id="node-count">0 nodes</strong>
-          <span>Click <code>+ Add MCP Node</code> to start your flow.</span>
-        </div>
-        <div id="canvas" class="canvas" aria-live="polite">
-          <p class="empty">No workflow nodes yet.</p>
-        </div>
-      </section>
-
-      <aside class="panel">
-        <section class="card">
-          <h2>Saved MCP Servers</h2>
-          <div id="saved-servers" class="stack compact"></div>
+        <section class="panel">
+          <h3>Installed MCP Servers</h3>
+          <div id="server-list" class="server-list"></div>
+          <button id="open-server-modal" class="ghost">+ New MCP Server</button>
         </section>
 
-        <section class="card">
-          <h2>Simulation + Export</h2>
-          <div class="stack">
-            <button id="simulate-flow" class="secondary">Simulate run</button>
-            <button id="export-flow" class="primary">Export composed MCP config</button>
+        <section class="panel">
+          <h3>mcp.json</h3>
+          <p class="muted">Edit and import server definitions (like Cursor config).</p>
+          <textarea id="mcp-json" rows="12" spellcheck="false"></textarea>
+          <div class="row">
+            <button id="load-json" class="ghost">Load from JSON</button>
+            <button id="save-json" class="primary">Update JSON from UI</button>
           </div>
+        </section>
+
+        <section class="panel">
+          <h3>Output</h3>
           <pre id="output">No output yet.</pre>
         </section>
       </aside>
+
+      <section class="canvas-wrap">
+        <div id="canvas" class="canvas">
+          <div id="flow-track" class="flow-track">
+            <button id="add-trigger" class="trigger-btn">Add Trigger</button>
+            <button id="add-after-trigger" class="plus-btn" aria-label="Add node">+</button>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <dialog id="node-modal" class="modal">
-      <form method="dialog" class="modal-shell" id="node-form-shell">
-        <header class="modal-head">
-          <h3>Add MCP Node</h3>
-          <button value="cancel" class="ghost">Close</button>
+    <dialog id="server-modal" class="modal">
+      <form method="dialog" class="modal-card">
+        <header>
+          <h3>Add MCP Server</h3>
+          <button class="ghost" value="cancel">Close</button>
         </header>
 
-        <div class="tabs">
-          <button type="button" id="tab-new" class="tab active">Create New Server</button>
-          <button type="button" id="tab-saved" class="tab">Pick Saved Server</button>
+        <label>Name <input id="server-name" placeholder="Figma" /></label>
+        <label>URL <input id="server-url" placeholder="https://mcp.example.com" /></label>
+        <label>Auth
+          <select id="auth-type">
+            <option value="none">None</option>
+            <option value="oauth">OAuth</option>
+            <option value="api_key">API Key</option>
+            <option value="bearer">Bearer Token</option>
+          </select>
+        </label>
+        <div id="auth-fields"></div>
+        <label>Tool hints (optional comma-separated)
+          <input id="tool-hints" placeholder="get_file,search,get_components" />
+        </label>
+        <div class="row">
+          <button type="button" id="verify-connection" class="ghost">Verify Connection</button>
+          <button type="button" id="start-oauth" class="ghost">Start OAuth</button>
         </div>
+        <p class="muted" id="conn-status">Not connected.</p>
 
-        <section id="new-server-pane" class="tab-pane active">
-          <div class="stack">
-            <label>Server name <input id="server-name" required placeholder="figma-mcp" /></label>
-            <label>Base URL <input id="server-url" required placeholder="https://mcp.example.com" /></label>
-            <label>Auth type
-              <select id="auth-type">
-                <option value="none">None</option>
-                <option value="api_key">API Key</option>
-                <option value="oauth">OAuth 2.0</option>
-                <option value="bearer">Bearer Token</option>
-                <option value="basic">Basic Auth</option>
-              </select>
-            </label>
-            <div id="auth-fields" class="stack compact"></div>
-            <label>Available tools (comma-separated)
-              <input id="tool-catalog" placeholder="get_file,search,generate_component" />
-            </label>
-            <label>Optional guideline.md
-              <textarea id="guideline" rows="4" placeholder="# guideline.md\n- be concise\n- redact secrets"></textarea>
-            </label>
-          </div>
-        </section>
+        <button id="save-server" type="button" class="primary">Save Server</button>
+      </form>
+    </dialog>
 
-        <section id="saved-server-pane" class="tab-pane">
-          <div id="saved-picker" class="stack"></div>
-        </section>
+    <dialog id="node-modal" class="modal">
+      <form method="dialog" class="modal-card">
+        <header>
+          <h3>Add Flow Node</h3>
+          <button class="ghost" value="cancel">Close</button>
+        </header>
 
-        <section class="card inline-card">
-          <h4>Node setup</h4>
-          <div class="stack compact">
-            <label>Node id <input id="node-id" required placeholder="step_figma" /></label>
-            <label>Tools to use in this node (multi-select)
-              <select id="node-tools" multiple size="5"></select>
-            </label>
-            <label>Context handoff policy
-              <select id="context-mode">
-                <option value="summary">Summary only (recommended)</option>
-                <option value="key_fields">Key fields only</option>
-                <option value="chunked">Chunk + retrieve</option>
-                <option value="full">Full payload (debug only)</option>
-              </select>
-            </label>
-            <label>Context budget (max tokens)
-              <input id="context-budget" type="number" min="128" step="128" value="2048" />
-            </label>
-            <label>Key fields whitelist (comma-separated, optional)
-              <input id="key-fields" placeholder="summary,components,frames" />
-            </label>
-            <label>Input template JSON
-              <textarea id="input-template" rows="4">{"prompt":"{{user.prompt}}","prior":"{{previous.summary}}"}</textarea>
-            </label>
-          </div>
-        </section>
+        <label>Use server
+          <select id="node-server"></select>
+        </label>
+        <label>Node id <input id="node-id" placeholder="step_figma" /></label>
+        <label>Available tools (after connection)
+          <select id="node-tools" multiple size="7"></select>
+        </label>
+        <label>Context mode
+          <select id="context-mode">
+            <option value="summary">Summary</option>
+            <option value="key_fields">Key fields</option>
+            <option value="chunked">Chunked references</option>
+          </select>
+        </label>
+        <label>Token budget <input id="token-budget" type="number" min="128" step="128" value="2048" /></label>
 
-        <footer class="modal-actions">
-          <button id="connect-server" type="button" class="secondary">Connect + Load Tools</button>
-          <button id="save-node" type="button" class="primary">Add Node to Canvas</button>
-        </footer>
+        <button id="add-node" type="button" class="primary">Add Node</button>
       </form>
     </dialog>
 

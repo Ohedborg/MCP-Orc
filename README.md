@@ -28,8 +28,8 @@ This starts:
 - frontend on `http://127.0.0.1:4173`
 
 ## Frontend usage flow
-1. Register one or more existing MCP servers (name, URL, tools, optional guideline markdown).
-2. Use the + button to add nodes from a modal (create new or pick saved MCP server).
-3. Configure auth (OAuth/API key/bearer/basic), connect, and select tool(s) per node.
-4. Set context handoff policy (summary/key fields/chunked/full) and token budget for each node.
-5. Simulate and export a composed configuration JSON for single MCP-Orc IDE consumption.
+1. Use the trigger/plus canvas to add MCP nodes in a linear workflow.
+2. Configure MCP servers in a Cursor-like settings panel (toggle enabled state, save/delete servers).
+3. OAuth now starts with a single "Start OAuth" action (no manual OAuth client fields).
+4. Tools become selectable only after connection verification, matching MCP settings behavior.
+5. Edit/import/export `mcp.json` and build a chain that passes compressed context between nodes.

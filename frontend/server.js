@@ -55,15 +55,30 @@ function normalizeTools(payload) {
 
 function getHttpCandidates(serverUrl) {
   const base = serverUrl.replace(/\/$/, '');
-  const urls = new Set([base, `${base}/mcp`, `${base}/tools`, `${base}/mcp/tools`]);
+  const urls = new Set([base]);
 
-  if (base.endsWith('/mcp')) {
-    const rootUrl = base.slice(0, -4) || '/';
-    urls.add(rootUrl);
-    urls.add(`${rootUrl}/tools`);
+  try {
+    const parsed = new URL(base);
+    const pathname = parsed.pathname || '/';
+    const isRootPath = pathname === '/';
+
+    if (isRootPath) {
+      urls.add(`${base}/mcp`);
+      urls.add(`${base}/tools`);
+      urls.add(`${base}/mcp/tools`);
+    } else {
+      const origin = `${parsed.protocol}//${parsed.host}`;
+      urls.add(origin);
+
+      if (pathname === '/mcp') {
+        urls.add(`${origin}/mcp/tools`);
+      }
+    }
+  } catch {
+    urls.add(`${base}/mcp`);
   }
 
-  return [...urls];
+  return [...urls].filter(Boolean);
 }
 
 async function postJsonRpc(url, auth, message) {
@@ -93,6 +108,7 @@ async function postJsonRpc(url, auth, message) {
 
 async function discoverToolsViaHttp(serverUrl, auth) {
   let lastError = 'No MCP response.';
+  let likelyEndpoint = '';
 
   for (const endpoint of getHttpCandidates(serverUrl)) {
     try {
@@ -111,6 +127,8 @@ async function discoverToolsViaHttp(serverUrl, auth) {
         lastError = `${endpoint} initialize status ${init.response.status}`;
         continue;
       }
+
+      likelyEndpoint = endpoint;
 
       await postJsonRpc(endpoint, auth, {
         jsonrpc: '2.0',
@@ -134,14 +152,17 @@ async function discoverToolsViaHttp(serverUrl, auth) {
       if (tools.length) return { ok: true, tools, transport: 'http' };
 
       lastError = `${endpoint} responded but returned no tools.`;
+
     } catch (error) {
       lastError = `${endpoint} error: ${error.message}`;
     }
   }
 
+  const endpointHint = likelyEndpoint ? ` (initialize worked at ${likelyEndpoint})` : '';
+
   return {
     ok: false,
-    error: `HTTP MCP discovery failed: ${lastError}`,
+    error: `HTTP MCP discovery failed: ${lastError}${endpointHint}`,
     tools: [],
     transport: 'http',
   };
@@ -265,7 +286,7 @@ async function discoverToolsViaStdio(commandConfig) {
     const timeout = setTimeout(() => {
       proc.kill('SIGKILL');
       finish({ ok: false, tools: [], error: 'Timeout talking to stdio MCP server.', transport: 'stdio' });
-    }, 12000);
+    }, 60000);
 
     let stderrOutput = '';
     proc.stderr.on('data', (chunk) => {

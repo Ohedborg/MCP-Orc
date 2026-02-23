@@ -1,0 +1,28 @@
+{
+  "workflow_id": "build_component_workflow",
+  "global_guidance": "guidance/global.md",
+  "steps": [
+    {
+      "id": "step_prepare",
+      "image_ref": "cgr.dev/chainguard/curl:latest",
+      "allowed_tools": ["echo"],
+      "tool_name": "echo",
+      "guidance_file": "guidance/step_prepare.md",
+      "inputs": {
+        "value": "prepare component {{component_name}}"
+      },
+      "outputs": ["value"]
+    },
+    {
+      "id": "step_finalize",
+      "image_ref": "cgr.dev/chainguard/curl:latest",
+      "allowed_tools": ["echo"],
+      "tool_name": "echo",
+      "guidance_file": "guidance/step_finalize.md",
+      "inputs": {
+        "value": "final output for {{value}}"
+      },
+      "outputs": ["final_message"]
+    }
+  ]
+}

@@ -149,13 +149,9 @@ async function discoverViaProxy(server) {
     });
 
     const body = await response.json();
-    if (!response.ok) {
-      return { ok: false, error: body.error || `HTTP ${response.status}`, tools: [], transport: body.transport || 'unknown' };
-    }
-
     return {
       ok: Boolean(body.ok),
-      error: body.error || '',
+      error: body.error || (response.ok ? '' : `HTTP ${response.status}`),
       tools: Array.isArray(body.tools) ? body.tools : [],
       transport: body.transport || 'unknown',
     };

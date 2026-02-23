@@ -125,19 +125,23 @@ async function discoverToolsViaHttp(serverUrl, auth) {
         params: {},
       });
 
-      if (!list.response.ok) continue;
-      const tools = normalizeTools(list.payload);
-      if (tools.length) {
-        return { ok: true, tools, transport: 'http' };
+      if (!list.response.ok) {
+        lastError = `${endpoint} tools/list status ${list.response.status}`;
+        continue;
       }
-    } catch {
-      // try next endpoint
+
+      const tools = normalizeTools(list.payload);
+      if (tools.length) return { ok: true, tools, transport: 'http' };
+
+      lastError = `${endpoint} responded but returned no tools.`;
+    } catch (error) {
+      lastError = `${endpoint} error: ${error.message}`;
     }
   }
 
   return {
     ok: false,
-    error: 'HTTP MCP discovery failed. Ensure the URL points to MCP transport endpoint and supports initialize/tools/list.',
+    error: `HTTP MCP discovery failed: ${lastError}`,
     tools: [],
     transport: 'http',
   };
@@ -155,7 +159,6 @@ function createRpcReader(stream, onMessage) {
   stream.on('data', (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
 
-    // framed protocol
     while (true) {
       const headerEnd = buffer.indexOf('\r\n\r\n');
       if (headerEnd < 0) break;
@@ -177,11 +180,10 @@ function createRpcReader(stream, onMessage) {
       try {
         onMessage(JSON.parse(jsonBody));
       } catch {
-        // ignore malformed
+        // ignore malformed chunk
       }
     }
-
-      });
+  });
 }
 
 function normalizeCommand(command, args) {
@@ -194,21 +196,55 @@ function normalizeCommand(command, args) {
   return { command, args: safeArgs };
 }
 
+function containsPlaceholder(args = []) {
+  return args.some((v) => typeof v === 'string' && /<[^>]+>/.test(v));
+}
+
+async function canReachNpmRegistry() {
+  try {
+    const response = await fetch('https://registry.npmjs.org', { method: 'HEAD' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function discoverToolsViaStdio(commandConfig) {
-  const rawCommand = commandConfig.command;
-  const normalized = normalizeCommand(rawCommand, commandConfig.args);
+  const normalized = normalizeCommand(commandConfig.command, commandConfig.args);
   const command = normalized.command;
   const args = normalized.args;
-
-  const env = {
-    ...process.env,
-    npm_config_yes: 'true',
-    ...(commandConfig.env && typeof commandConfig.env === 'object' ? commandConfig.env : {}),
-  };
 
   if (!command) {
     return { ok: false, tools: [], error: 'Missing command for stdio MCP server.', transport: 'stdio' };
   }
+
+  if (containsPlaceholder(args)) {
+    return {
+      ok: false,
+      tools: [],
+      error: 'Command args contain placeholder values (e.g. <personal-access-token>). Replace with real values first.',
+      transport: 'stdio',
+    };
+  }
+
+  if (command === 'npx') {
+    const canReachNpm = await canReachNpmRegistry();
+    if (!canReachNpm) {
+      return {
+        ok: false,
+        tools: [],
+        error: 'Cannot reach registry.npmjs.org from this runtime. npx-based MCP servers cannot be bootstrapped here.',
+        transport: 'stdio',
+      };
+    }
+  }
+
+  const env = {
+    ...process.env,
+    npm_config_yes: 'true',
+    npm_config_fetch_retries: '0',
+    ...(commandConfig.env && typeof commandConfig.env === 'object' ? commandConfig.env : {}),
+  };
 
   return new Promise((resolve) => {
     const proc = spawn(command, args, {
@@ -229,7 +265,7 @@ async function discoverToolsViaStdio(commandConfig) {
     const timeout = setTimeout(() => {
       proc.kill('SIGKILL');
       finish({ ok: false, tools: [], error: 'Timeout talking to stdio MCP server.', transport: 'stdio' });
-    }, 18000);
+    }, 12000);
 
     let stderrOutput = '';
     proc.stderr.on('data', (chunk) => {
@@ -245,10 +281,7 @@ async function discoverToolsViaStdio(commandConfig) {
       }
     });
 
-    const sendRpc = (message) => {
-      proc.stdin.write(encodeRpcMessage(message));
-    };
-
+    const sendRpc = (message) => proc.stdin.write(encodeRpcMessage(message));
     const requestRpc = (id, method, params = {}) =>
       new Promise((done) => {
         pending.set(id, done);
@@ -280,6 +313,7 @@ async function discoverToolsViaStdio(commandConfig) {
         }
 
         sendRpc({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+
         const toolsResp = await requestRpc('tools-1', 'tools/list', {});
         const tools = normalizeTools(toolsResp);
 
@@ -300,15 +334,25 @@ async function discoverToolsViaStdio(commandConfig) {
 }
 
 async function discoverTools(config) {
-  if (config.url) {
-    return discoverToolsViaHttp(config.url, config.auth);
-  }
-
-  if (config.command) {
-    return discoverToolsViaStdio(config);
-  }
-
+  if (config.url) return discoverToolsViaHttp(config.url, config.auth);
+  if (config.command) return discoverToolsViaStdio(config);
   return { ok: false, tools: [], error: 'Server needs either url or command.', transport: 'unknown' };
+}
+
+async function outboundInternetCheck() {
+  const targets = ['https://example.com', 'https://registry.npmjs.org'];
+  const results = [];
+
+  for (const url of targets) {
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      results.push({ url, ok: response.ok, status: response.status });
+    } catch (error) {
+      results.push({ url, ok: false, error: String(error.message || error) });
+    }
+  }
+
+  return results;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -318,14 +362,21 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readJson(req);
       const result = await discoverTools(body || {});
-      res.writeHead(result.ok ? 200 : 502, { 'content-type': 'application/json' });
+      res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(result));
       return;
     } catch (error) {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: String(error.message || error), tools: [] }));
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: String(error.message || error), tools: [], transport: 'unknown' }));
       return;
     }
+  }
+
+  if (url === '/mcp/diagnostics' && req.method === 'GET') {
+    const internet = await outboundInternetCheck();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ internet }));
+    return;
   }
 
   if (url.startsWith('/api/')) {
